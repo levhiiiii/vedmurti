@@ -5,7 +5,7 @@ import Bottle from '../assets/NoniBottle.png'
 
 const HeroSection = () => {
   return (
-    <section className="relative bg-green-50 overflow-hidden">
+    <section className="relative bg-green-50 md:pt-0 pt-10 overflow-hidden">
       {/* Background pattern */}
       <div className="absolute inset-0 opacity-10">
         <div className="absolute inset-0 bg-[url('/path-to-leaf-pattern.svg')] bg-repeat"></div>
@@ -52,7 +52,7 @@ const HeroSection = () => {
 
           {/* Product Image */}
           <div className="lg:w-1/2 relative flex justify-center ">
-            <div className="relative max-w-md mx-auto lg:mx-0 bg-green-600 rounded-full">
+            <div className="relative max-w-md mx-auto lg:mx-0 bg-green-600 rounded-full animate-float1">
               {/* Main product image with shadow */}
               {/* <div className="relative z-10">
                 <img 
@@ -63,8 +63,8 @@ const HeroSection = () => {
               </div> */}
               
               {/* Decorative elements */}
-              <div className="absolute -bottom-8 -left-8 w-32 h-32 bg-green-700 rounded-full opacity-30"></div>
-              <div className="absolute -top-8 -right-8 w-24 h-24 bg-green-600 rounded-full opacity-30"></div>
+              <div className="absolute -bottom-8 -left-8 w-32 h-32 bg-green-700 rounded-full opacity-30 animate-float1"></div>
+              <div className="absolute -top-8 -right-8 w-24 h-24 bg-green-600 rounded-full opacity-30 animate-float2"></div>
               
               {/* Floating leaves decoration */}
               <img 

@@ -21,5 +21,22 @@
   .animate-float {
     animation: float 6s ease-in-out infinite;
   }
+
+  .animate-float1 {
+    animation: float 7s ease-in-out infinite;
+  }
+
+  .animate-float2 {
+    animation: float 9s ease-in-out infinite;
+  }
 }
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+
 

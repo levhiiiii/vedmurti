@@ -117,24 +117,25 @@ const ShopPage = () => {
       <div className="container mx-auto px-4 py-8">
         {/* Toolbar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+          
           {/* Category Tabs */}
-          <div className="flex overflow-x-auto pb-2 md:pb-0">
-            <div className="flex space-x-2">
+          <div className="w-full overflow-x-auto no-scrollbar">
+            <div className="min-w-max flex space-x-1 px-0 py-1">
               {categories.map((category) => (
                 <button
                   key={category.id}
                   onClick={() => setSelectedCategory(category.id)}
-                  className={`px-4 py-2 rounded-full whitespace-nowrap ${
-                    selectedCategory === category.id
+                  className={`px-4 py-2 rounded-full whitespace-nowrap ${selectedCategory === category.id
                       ? 'bg-green-600 text-white'
                       : 'bg-white text-gray-700 hover:bg-green-50'
-                  }`}
+                    }`}
                 >
                   {category.name}
                 </button>
               ))}
             </div>
           </div>
+
 
           {/* Search and Filter */}
           <div className="flex items-center space-x-4 w-full md:w-auto">
@@ -157,7 +158,7 @@ const ShopPage = () => {
 
               {/* Filter Dropdown */}
               {showFilters && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl z-10 p-4">
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl z-100 p-4">
                   <h3 className="font-medium mb-3">Sort By</h3>
                   <select
                     value={sortOption}
@@ -282,9 +283,7 @@ const ShopPage = () => {
             <button className="px-3 py-1 rounded border bg-green-600 text-white">
               1
             </button>
-            <button className="px-3 py-1 rounded border bg-white text-gray-600 hover:bg-gray-50">
-              2
-            </button>
+           
             <button className="px-3 py-1 rounded border bg-white text-gray-600 hover:bg-gray-50">
               3
             </button>

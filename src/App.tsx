@@ -8,6 +8,8 @@ import AboutNoniPage from "./pages/E-Commerce/About-Noni"
 import BenefitsPage from "./pages/E-Commerce/Benifits"
 import TestimonialsPage from "./pages/E-Commerce/Testimonials"
 import Contact from "./pages/E-Commerce/Contact"
+import AccountPage from "./pages/E-Commerce/Account"
+import CartPage from "./pages/E-Commerce/Cart"
 
 const App = () => {
   return (
@@ -21,8 +23,11 @@ const App = () => {
         <Route path="/benifits" element={<BenefitsPage/>} />
         <Route path="/testimonials" element={<TestimonialsPage/>} />
         <Route path="/contact" element={<Contact/>} />
+        <Route path="/account" element={<AccountPage/>} />
+        <Route path="/cart" element={<CartPage/>} />
      </Routes>
      <Footer/>
+    
    </BrowserRouter>
   )
 }
