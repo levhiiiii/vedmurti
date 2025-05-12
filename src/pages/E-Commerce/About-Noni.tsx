@@ -6,7 +6,7 @@ import { IoMdBody } from 'react-icons/io';
 
 const AboutNoniPage = () => {
   return (
-    <div className="bg-green-50 pt-15 min-h-screen">
+    <div className="bg-green-50 pt-15  min-h-screen">
       {/* Hero Section */}
       <div className="bg-green-700 text-white py-16">
         <div className="container mx-auto px-4 text-center">
@@ -21,7 +21,7 @@ const AboutNoniPage = () => {
       </div>
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-12">
+      <div className=" mx-auto px-12 py-12">
         {/* What is Noni Section */}
         <section className="mb-16">
           <div className="flex flex-col lg:flex-row items-center gap-8">

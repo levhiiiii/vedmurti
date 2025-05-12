@@ -30,7 +30,7 @@
     animation: float 9s ease-in-out infinite;
   }
 }
-
+px-10 py-8
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -39,4 +39,8 @@
   scrollbar-width: none;     /* Firefox */
 }
 
+.container{
+  padding-right: 25px;
+  padding-left: 25px;
+}
 

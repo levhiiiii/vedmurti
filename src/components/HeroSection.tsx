@@ -5,7 +5,7 @@ import Bottle from '../assets/NoniBottle.png'
 
 const HeroSection = () => {
   return (
-    <section className="relative bg-green-50 md:pt-0 pt-10 overflow-hidden">
+    <section className="relative p-5 bg-green-50 md:pt-0 pt-20 overflow-hidden">
       {/* Background pattern */}
       <div className="absolute inset-0 opacity-10">
         <div className="absolute inset-0 bg-[url('/path-to-leaf-pattern.svg')] bg-repeat"></div>

@@ -102,10 +102,10 @@ const ShopPage = () => {
   };
 
   return (
-    <div className="bg-green-50 pt-15 min-h-screen">
+    <div className="bg-green-50  pt-15 min-h-screen">
       {/* Shop Header */}
       <div className="bg-green-700 text-white py-12">
-        <div className="container mx-auto px-4">
+        <div className=" flex justify-center flex-col items-center mx-auto px-4">
           <h1 className="text-3xl md:text-4xl font-bold mb-2">Noni Juice Shop</h1>
           <p className="text-green-100 max-w-2xl">
             Discover our range of premium Noni products for complete wellness
@@ -114,7 +114,7 @@ const ShopPage = () => {
       </div>
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-8">
+      <div className=" mx-auto px-10 py-8">
         {/* Toolbar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           

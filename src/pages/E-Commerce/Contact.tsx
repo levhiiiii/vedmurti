@@ -20,12 +20,14 @@ const ContactPage = () => {
       </div>
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-12">
+      <div className=" md:px-20 px-4 mx-auto  py-12">
         <div className="grid md:grid-cols-2 gap-12">
           {/* Contact Information */}
-          <div>
+          <div className="bg-white rounded-xl shadow-md p-8">
             <h2 className="text-3xl font-bold text-gray-800 mb-6">Get in Touch</h2>
-            
+            <div className="h-0.5 w-full bg-gray-100 mb-8  rounded-2xl">
+
+</div>
             <div className="space-y-6">
               {/* Phone */}
               <div className="flex items-start">
@@ -83,21 +85,23 @@ const ContactPage = () => {
                   <h3 className="font-semibold text-lg text-gray-800">Operating Hours</h3>
                   <ul className="text-gray-600 space-y-1">
                     <li className="flex justify-between max-w-xs">
-                      <span>Monday-Friday:</span> <span>9:00 AM - 6:00 PM</span>
+                      <span>Monday-Friday :</span> <span> 9:00 AM - 6:00 PM</span>
                     </li>
                     <li className="flex justify-between max-w-xs">
-                      <span>Saturday:</span> <span>10:00 AM - 4:00 PM</span>
+                      <span>Saturday : </span> <span>10:00 AM - 4:00 PM</span>
                     </li>
                     <li className="flex justify-between max-w-xs">
-                      <span>Sunday:</span> <span>Closed</span>
+                      <span>Sunday : </span> <span>Closed</span>
                     </li>
                   </ul>
                 </div>
               </div>
 
               {/* Social Media */}
-              <div className="pt-4">
-                <h3 className="font-semibold text-lg text-gray-800 mb-3">Connect With Us</h3>
+              <div className="pt-4 w-full flex flex-col items-center">
+               <div className="h-0.5 w-full bg-gray-100 mb-10 rounded-2xl">
+
+               </div>
                 <div className="flex space-x-4">
                   <a href="#" className="bg-green-100 p-3 rounded-full text-green-600 hover:bg-green-200 transition-colors">
                     <FaFacebook className="text-xl" />
