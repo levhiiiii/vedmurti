@@ -22,6 +22,7 @@ import {
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { createContext, useContext, useState, useEffect } from 'react';
 import { app } from '../Firebase/firebase';
+import PaymentService from '../services/paymentService';
 
 const USER_STORAGE_KEY = 'currentUser';
 
@@ -30,6 +31,8 @@ export const UserContext = createContext();
 export const UserProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [paymentData, setPaymentData] = useState(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
 
 
 
@@ -229,16 +232,145 @@ export const UserProvider = ({ children }) => {
     const auth = getAuth();
     await auth.signOut();
     setCurrentUser(null);
+    setPaymentData(null);
     localStorage.removeItem(USER_STORAGE_KEY);
   };
+
+  // Payment-related functions
+  const loadPaymentData = async () => {
+    if (!currentUser?.uid) return;
+    
+    setPaymentLoading(true);
+    try {
+      const data = await PaymentService.getUserPaymentData(currentUser.uid);
+      setPaymentData(data);
+    } catch (error) {
+      console.error('Error loading payment data:', error);
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  const addBankAccount = async (bankAccountData) => {
+    if (!currentUser?.uid) throw new Error('No user logged in');
+    
+    try {
+      const accountId = await PaymentService.addBankAccount(currentUser.uid, bankAccountData);
+      await loadPaymentData(); // Refresh payment data
+      return accountId;
+    } catch (error) {
+      console.error('Error adding bank account:', error);
+      throw error;
+    }
+  };
+
+  const updateBankAccount = async (accountId, updateData) => {
+    try {
+      await PaymentService.updateBankAccount(accountId, updateData);
+      await loadPaymentData(); // Refresh payment data
+    } catch (error) {
+      console.error('Error updating bank account:', error);
+      throw error;
+    }
+  };
+
+  const deleteBankAccount = async (accountId) => {
+    try {
+      await PaymentService.deleteBankAccount(accountId);
+      await loadPaymentData(); // Refresh payment data
+    } catch (error) {
+      console.error('Error deleting bank account:', error);
+      throw error;
+    }
+  };
+
+  const submitWithdrawalRequest = async (withdrawalData) => {
+    if (!currentUser?.uid) throw new Error('No user logged in');
+    
+    try {
+      const requestId = await PaymentService.submitWithdrawalRequest(currentUser.uid, withdrawalData);
+      await loadPaymentData(); // Refresh payment data
+      return requestId;
+    } catch (error) {
+      console.error('Error submitting withdrawal request:', error);
+      throw error;
+    }
+  };
+
+  const addEarnings = async (earningsData) => {
+    if (!currentUser?.uid) throw new Error('No user logged in');
+    
+    try {
+      await PaymentService.addEarnings(currentUser.uid, earningsData);
+      await loadPaymentData(); // Refresh payment data
+    } catch (error) {
+      console.error('Error adding earnings:', error);
+      throw error;
+    }
+  };
+
+  // Load payment data when user changes
+  useEffect(() => {
+    if (currentUser?.uid && currentUser.affiliateStatus) {
+      loadPaymentData();
+    } else {
+      setPaymentData(null);
+    }
+  }, [currentUser?.uid, currentUser?.affiliateStatus]);
+
+  // Set up real-time payment data listener
+  useEffect(() => {
+    if (!currentUser?.uid || !currentUser.affiliateStatus) return;
+
+    const unsubscribe = PaymentService.subscribeToPaymentData(
+      currentUser.uid,
+      (dataType, data) => {
+        setPaymentData(prevData => {
+          if (!prevData) return prevData;
+          
+          switch (dataType) {
+            case 'user':
+              return {
+                ...prevData,
+                balance: data.affiliateBalance || 0,
+                pending: data.pendingEarnings || 0,
+                lifetimeEarnings: data.totalEarnings || 0
+              };
+            case 'transactions':
+              return {
+                ...prevData,
+                transactions: data
+              };
+            case 'withdrawals':
+              return {
+                ...prevData,
+                withdrawalRequests: data
+              };
+            default:
+              return prevData;
+          }
+        });
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentUser?.uid, currentUser?.affiliateStatus]);
 
   return (
     <UserContext.Provider value={{ 
       currentUser, 
       loading,
+      paymentData,
+      paymentLoading,
       registerUser,
       updateUserProfile,
-      logout
+      logout,
+      loadPaymentData,
+      addBankAccount,
+      updateBankAccount,
+      deleteBankAccount,
+      submitWithdrawalRequest,
+      addEarnings
     }}>
       {children}
     </UserContext.Provider>
