@@ -1,0 +1,22 @@
+
+@import "tailwindcss";
+
+:root {
+  --primary-color: #285a43; /* A deep, natural green */
+  --secondary-color: #eab308; /* A vibrant, earthy yellow for accents */
+  --background-color: #f7fafc; /* A light, clean background */
+  --text-color: #333333; /* A soft, readable black */
+  --heading-font: 'Georgia', serif;
+  --body-font: 'Arial', sans-serif;
+}
+
+body {
+  font-family: var(--body-font);
+  color: var(--text-color);
+  background-color: var(--background-color);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--heading-font);
+  color: var(--primary-color);
+}
