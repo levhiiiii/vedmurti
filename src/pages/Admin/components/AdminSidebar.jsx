@@ -19,9 +19,9 @@ const AdminSidebar = ({ isSidebarOpen, toggleSidebar, isMobile, activeItem, setA
 
   const menuItems = [
     { name: 'Dashboard', icon: FaHome, path: '/admin' },
+    { name: 'Payment Requests', icon: FaMoneyBill, path: '/admin/payment-requests' },
     { name: 'Network', icon: FaNetworkWired, path: '/admin/tree' },
-    { name: 'payouts', icon: FaMoneyBill, path: '/admin/payouts' },
- 
+    { name: 'Payouts', icon: FaMoneyBill, path: '/admin/payouts' },
     { name: 'Profile', icon: FaUser, path: '/admin/profile' },
   ];
 

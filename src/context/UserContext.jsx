@@ -309,6 +309,39 @@ export const UserProvider = ({ children }) => {
     }
   };
 
+  // Payment Request Functions
+  const submitPaymentRequest = async (paymentData) => {
+    if (!currentUser?.uid) throw new Error('No user logged in');
+    
+    try {
+      const requestId = await PaymentService.submitOfflinePaymentRequest(currentUser.uid, paymentData);
+      
+      // Update current user state
+      setCurrentUser(prev => ({
+        ...prev,
+        paymentRequestId: requestId,
+        paymentRequestStatus: 'pending',
+        paymentRequestSubmittedAt: new Date()
+      }));
+      
+      return requestId;
+    } catch (error) {
+      console.error('Error submitting payment request:', error);
+      throw error;
+    }
+  };
+
+  const getUserPaymentRequest = async () => {
+    if (!currentUser?.uid) return null;
+    
+    try {
+      return await PaymentService.getUserPaymentRequest(currentUser.uid);
+    } catch (error) {
+      console.error('Error getting payment request:', error);
+      return null;
+    }
+  };
+
   // Load payment data when user changes
   useEffect(() => {
     if (currentUser?.uid && currentUser.affiliateStatus) {
@@ -370,7 +403,9 @@ export const UserProvider = ({ children }) => {
       updateBankAccount,
       deleteBankAccount,
       submitWithdrawalRequest,
-      addEarnings
+      addEarnings,
+      submitPaymentRequest,
+      getUserPaymentRequest
     }}>
       {children}
     </UserContext.Provider>

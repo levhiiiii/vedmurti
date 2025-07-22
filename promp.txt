@@ -1,0 +1,141 @@
+✅ Analyzed Functional Requirements:
+🔐 User Registration System
+Product-based registration (₹1500 product purchase)
+
+Unique ID and password generation
+
+Store user profile, ID, sponsor ID (referral), registration timestamp
+
+📢 Invitation & Referral System
+Each user can invite others (tree structure)
+
+Store invited user’s sponsor ID and maintain left/right pairing (binary tree)
+
+Invite tracking and history
+
+💸 Income Models
+Promotional Incentive
+
+Based on pairs (1 pair = ₹400)
+
+Ratio 1:2 or 2:1 eligible for income
+
+Max 2 cycles/day = ₹4000/day cap
+
+Mentorship Incentive
+
+₹500 cap per ID per cycle
+
+Income based on depth (Upline A/B)
+
+Max ₹2000/day (₹60,000/month)
+
+Performance Rewards
+
+Based on number of pairs achieved in 30 days
+
+50 pairs = ₹2500
+
+100 = ₹5000, 250 = ₹12500, 500 = ₹25000, 1000 = ₹50000
+
+Payouts every 10 days on 1st, 11th, 21st with 5% deduction
+
+💹 Analytics
+Daily income report
+
+Total income: monthly & annually
+
+Sponsor tree visualization
+
+Pair calculation
+
+Capping control
+
+Payout history
+
+Performance reward tracking
+
+
+
+
+
+
+
+I am building a Affilate backend and i already implemented Affilate Dashboard using Firebase (Firestore + Auth) and Firestore as the database. I am using React Vite with Tailwind CSS for the frontend.
+
+Please generate a complete backend setup with the following features:
+
+🔐 1. User Registration & Authentication
+
+New users register by paying ₹1500 (simulate payment or store payment proof).
+
+Generate unique user ID and password upon registration.
+
+Store in Firestore: UID, sponsor ID (who invited them), joining date, position (left/right), email, name, contact.
+
+📢 2. Referral / Binary Tree System
+
+Every user can invite others.
+
+Maintain binary tree (left and right) for each user.
+
+Auto-place user in left/right side according to sponsor.
+
+💸 3. Income Calculation
+
+Promotional Incentive:
+
+For every pair (left and right), give ₹400.
+
+Daily capping: 2 cycles (₹4000 max/day).
+
+Reset daily cycle every 12 hours (12am-12pm and 12pm-12am).
+
+Mentorship Income:
+
+₹300–₹1200 based on depth
+
+Capped at ₹500 per ID/cycle.
+
+Max ₹2000/day.
+
+Performance Rewards:
+
+50 pairs = ₹2500, 100 = ₹5000, 250 = ₹12500, etc. (in 30-day period)
+
+Track number of pairs and reward eligibility.
+
+🧾 4. Payout System
+
+Daily income calculation.
+
+Reward payout every 10 days (on 1st, 11th, 21st).
+
+Apply 5% deduction on all payouts.
+
+Store payout history per user.
+
+📊 5. Admin Dashboard
+
+View users, total income, pairing structure, pending payouts.
+
+Manually approve payouts if needed.
+
+Export reports (CSV/Excel).
+
+🔎 6. User Dashboard
+
+View own income, referrals, team structure.
+
+Track performance reward progress.
+
+View payout history.
+
+🔄 7. Scheduled Functions
+
+Reset daily capping at midnight and noon.
+
+Check and distribute rewards every 10 days.
+
+
+implement above functionality and login in my existing project and files and folders make changes yourself improve ui ux first understant the existing flow of project and then refactor project with above logic

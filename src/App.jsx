@@ -31,6 +31,9 @@ import AdminLayout from "./pages/Admin/Layout/AdminLayout.jsx"
 import AdminDashboard from "./pages/Admin/pages/AdminDashboard.jsx"
 import AdminLogin from "./pages/Admin/pages/AdminLogin.jsx"
 import PayoutPage from "./pages/Admin/pages/Payout.jsx"
+import PaymentRequests from "./pages/Admin/pages/PaymentRequests.jsx"
+import PaymentRequestPage from "./pages/PaymentRequestPage.jsx"
+import ProtectedRoute from "./components/ProtectedRoute.jsx"
 import { useUser, UserProvider } from "./context/UserContext.jsx"
 import { CartProvider } from "./context/CartContext.jsx"
 import { WishlistProvider } from "./context/WishlistContext.jsx"
@@ -76,6 +79,7 @@ const App = () => {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/affiliate" element={<AffiliateHero />} />
+          <Route path="/payment-request" element={<PaymentRequestPage />} />
           <Route path="/adminlogin" element={<AdminLogin />} />
           <Route path="/prod" element={<ProductForm />} />
           <Route path="/products/:productId" element={<ProductDetails />} />
@@ -87,8 +91,12 @@ const App = () => {
             <Route path="wishlist" element={<Wishlist />} />
           </Route>
 
-          <Route path="affilate-dashboard" element={<AffilateLayout />}>
-          <Route index element={<AffilateDashboardWrapper />} />
+          <Route path="affilate-dashboard" element={
+            <ProtectedRoute requireAffiliate={true}>
+              <AffilateLayout />
+            </ProtectedRoute>
+          }>
+            <Route index element={<AffilateDashboardWrapper />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="tree" element={<MLMNetwork />} />
             <Route path="mynetwork" element={<MyNetwork />} />
@@ -100,6 +108,7 @@ const App = () => {
 
           <Route path="admin" element={<AdminLayout />}>
             <Route index element={<AdminDashboard />} />
+            <Route path="payment-requests" element={<PaymentRequests />} />
             <Route path="payouts" element={<PayoutPage />} />
             <Route path="tree" element={<MLMNetwork />} />
             <Route path="profile" element={<AffilateProfile />} />

@@ -13,7 +13,8 @@ import {
   addDoc, 
   onSnapshot,
   serverTimestamp,
-  increment
+  increment,
+  runTransaction
 } from 'firebase/firestore';
 import { app } from '../Firebase/firebase';
 
@@ -431,6 +432,408 @@ export class PaymentService {
     return () => {
       unsubscribers.forEach(unsubscribe => unsubscribe());
     };
+  }
+
+  // Payment Request Management for Offline Payments
+
+  // Submit offline payment request (₹1500 joining amount)
+  static async submitOfflinePaymentRequest(userId, paymentData) {
+    try {
+      const paymentRequestData = {
+        userId,
+        amount: 1500, // Fixed joining amount
+        paymentMethod: 'offline',
+        paymentProof: paymentData.paymentProof, // Image/document URL
+        transactionId: paymentData.transactionId || '',
+        paymentDate: paymentData.paymentDate || new Date(),
+        bankDetails: paymentData.bankDetails || '',
+        remarks: paymentData.remarks || '',
+        status: 'pending', // pending, approved, rejected
+        submittedAt: serverTimestamp(),
+        processedAt: null,
+        processedBy: null,
+        adminRemarks: '',
+        type: 'affiliate_joining'
+      };
+
+      const docRef = await addDoc(collection(db, 'paymentRequests'), paymentRequestData);
+
+      // Update user's payment request status
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        paymentRequestId: docRef.id,
+        paymentRequestStatus: 'pending',
+        paymentRequestSubmittedAt: serverTimestamp()
+      });
+
+      return docRef.id;
+    } catch (error) {
+      console.error('Error submitting payment request:', error);
+      throw error;
+    }
+  }
+
+  // Get user's payment request status
+  static async getUserPaymentRequest(userId) {
+    try {
+      const paymentRequestsRef = collection(db, 'paymentRequests');
+      const q = query(
+        paymentRequestsRef,
+        where('userId', '==', userId),
+        where('type', '==', 'affiliate_joining'),
+        orderBy('submittedAt', 'desc'),
+        limit(1)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        return null;
+      }
+
+      const docSnapshot = querySnapshot.docs[0];
+      return {
+        id: docSnapshot.id,
+        ...docSnapshot.data(),
+        submittedAt: docSnapshot.data().submittedAt?.toDate() || new Date(),
+        processedAt: docSnapshot.data().processedAt?.toDate() || null
+      };
+    } catch (error) {
+      console.error('Error getting payment request:', error);
+      return null;
+    }
+  }
+
+  // Admin: Get all pending payment requests
+  static async getPendingPaymentRequests(limitCount = 50) {
+    try {
+      const paymentRequestsRef = collection(db, 'paymentRequests');
+      const q = query(
+        paymentRequestsRef,
+        where('status', '==', 'pending'),
+        where('type', '==', 'affiliate_joining'),
+        orderBy('submittedAt', 'desc'),
+        limit(limitCount)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const requests = [];
+      
+      for (const docSnapshot of querySnapshot.docs) {
+        const requestData = docSnapshot.data();
+        
+        // Get user details
+        const userDoc = await getDoc(doc(db, 'users', requestData.userId));
+        const userData = userDoc.exists() ? userDoc.data() : {};
+
+        requests.push({
+          id: docSnapshot.id,
+          ...requestData,
+          submittedAt: requestData.submittedAt?.toDate() || new Date(),
+          userName: userData.name || 'Unknown',
+          userEmail: userData.email || 'Unknown',
+          userPhone: userData.phone || 'Unknown',
+          referralCode: userData.referralCode || 'Unknown'
+        });
+      }
+      
+      return requests;
+    } catch (error) {
+      console.error('Error getting pending payment requests:', error);
+      return [];
+    }
+  }
+
+  // Admin: Get all payment requests with filters
+  static async getAllPaymentRequests(status = 'all', limitCount = 100) {
+    try {
+      const paymentRequestsRef = collection(db, 'paymentRequests');
+      let q;
+      
+      if (status === 'all') {
+        q = query(
+          paymentRequestsRef,
+          where('type', '==', 'affiliate_joining'),
+          orderBy('submittedAt', 'desc'),
+          limit(limitCount)
+        );
+      } else {
+        q = query(
+          paymentRequestsRef,
+          where('status', '==', status),
+          where('type', '==', 'affiliate_joining'),
+          orderBy('submittedAt', 'desc'),
+          limit(limitCount)
+        );
+      }
+      
+      const querySnapshot = await getDocs(q);
+      const requests = [];
+      
+      for (const docSnapshot of querySnapshot.docs) {
+        const requestData = docSnapshot.data();
+        
+        // Get user details
+        const userDoc = await getDoc(doc(db, 'users', requestData.userId));
+        const userData = userDoc.exists() ? userDoc.data() : {};
+
+        requests.push({
+          id: docSnapshot.id,
+          ...requestData,
+          submittedAt: requestData.submittedAt?.toDate() || new Date(),
+          processedAt: requestData.processedAt?.toDate() || null,
+          userName: userData.name || 'Unknown',
+          userEmail: userData.email || 'Unknown',
+          userPhone: userData.phone || 'Unknown',
+          referralCode: userData.referralCode || 'Unknown'
+        });
+      }
+      
+      return requests;
+    } catch (error) {
+      console.error('Error getting payment requests:', error);
+      return [];
+    }
+  }
+
+  // Admin: Approve payment request
+  static async approvePaymentRequest(requestId, adminId, adminRemarks = '') {
+    try {
+      return await runTransaction(db, async (transaction) => {
+        const requestRef = doc(db, 'paymentRequests', requestId);
+        const requestDoc = await transaction.get(requestRef);
+        
+        if (!requestDoc.exists()) {
+          throw new Error('Payment request not found');
+        }
+
+        const requestData = requestDoc.data();
+        
+        if (requestData.status !== 'pending') {
+          throw new Error('Payment request is not in pending status');
+        }
+
+        // Update payment request status
+        transaction.update(requestRef, {
+          status: 'approved',
+          processedAt: serverTimestamp(),
+          processedBy: adminId,
+          adminRemarks: adminRemarks
+        });
+
+        // Update user's affiliate status and register in MLM
+        const userRef = doc(db, 'users', requestData.userId);
+        transaction.update(userRef, {
+          affiliateStatus: true,
+          paymentRequestStatus: 'approved',
+          affiliateJoinDate: serverTimestamp(),
+          joiningAmount: 1500,
+          paymentApprovedBy: adminId,
+          paymentApprovedAt: serverTimestamp()
+        });
+
+        // Create transaction record
+        const transactionData = {
+          userId: requestData.userId,
+          type: 'affiliate_joining_payment',
+          amount: 1500,
+          status: 'approved',
+          description: 'Affiliate joining payment approved',
+          paymentRequestId: requestId,
+          approvedBy: adminId,
+          createdAt: serverTimestamp()
+        };
+
+        const transactionRef = doc(collection(db, 'payments'));
+        transaction.set(transactionRef, transactionData);
+
+        return { 
+          success: true, 
+          requestId, 
+          userId: requestData.userId,
+          amount: requestData.amount 
+        };
+      });
+    } catch (error) {
+      console.error('Error approving payment request:', error);
+      throw error;
+    }
+  }
+
+  // Admin: Reject payment request
+  static async rejectPaymentRequest(requestId, adminId, rejectionReason) {
+    try {
+      return await runTransaction(db, async (transaction) => {
+        const requestRef = doc(db, 'paymentRequests', requestId);
+        const requestDoc = await transaction.get(requestRef);
+        
+        if (!requestDoc.exists()) {
+          throw new Error('Payment request not found');
+        }
+
+        const requestData = requestDoc.data();
+        
+        if (requestData.status !== 'pending') {
+          throw new Error('Payment request is not in pending status');
+        }
+
+        // Update payment request status
+        transaction.update(requestRef, {
+          status: 'rejected',
+          processedAt: serverTimestamp(),
+          processedBy: adminId,
+          adminRemarks: rejectionReason
+        });
+
+        // Update user's payment request status
+        const userRef = doc(db, 'users', requestData.userId);
+        transaction.update(userRef, {
+          paymentRequestStatus: 'rejected',
+          affiliateStatus: false,
+          rejectionReason: rejectionReason,
+          rejectedBy: adminId,
+          rejectedAt: serverTimestamp()
+        });
+
+        // Create transaction record
+        const transactionData = {
+          userId: requestData.userId,
+          type: 'affiliate_joining_payment',
+          amount: 1500,
+          status: 'rejected',
+          description: `Affiliate joining payment rejected: ${rejectionReason}`,
+          paymentRequestId: requestId,
+          rejectedBy: adminId,
+          createdAt: serverTimestamp()
+        };
+
+        const transactionRef = doc(collection(db, 'payments'));
+        transaction.set(transactionRef, transactionData);
+
+        return { 
+          success: true, 
+          requestId, 
+          userId: requestData.userId,
+          rejectionReason 
+        };
+      });
+    } catch (error) {
+      console.error('Error rejecting payment request:', error);
+      throw error;
+    }
+  }
+
+  // Admin: Bulk approve payment requests
+  static async bulkApprovePaymentRequests(requestIds, adminId, adminRemarks = '') {
+    try {
+      const results = [];
+      
+      for (const requestId of requestIds) {
+        try {
+          const result = await this.approvePaymentRequest(requestId, adminId, adminRemarks);
+          results.push({ ...result, status: 'success' });
+        } catch (error) {
+          results.push({ 
+            requestId, 
+            status: 'error', 
+            error: error.message 
+          });
+        }
+      }
+      
+      return results;
+    } catch (error) {
+      console.error('Error bulk approving payment requests:', error);
+      throw error;
+    }
+  }
+
+  // Admin: Bulk reject payment requests
+  static async bulkRejectPaymentRequests(requestIds, adminId, rejectionReason) {
+    try {
+      const results = [];
+      
+      for (const requestId of requestIds) {
+        try {
+          const result = await this.rejectPaymentRequest(requestId, adminId, rejectionReason);
+          results.push({ ...result, status: 'success' });
+        } catch (error) {
+          results.push({ 
+            requestId, 
+            status: 'error', 
+            error: error.message 
+          });
+        }
+      }
+      
+      return results;
+    } catch (error) {
+      console.error('Error bulk rejecting payment requests:', error);
+      throw error;
+    }
+  }
+
+  // Subscribe to payment request updates
+  static subscribeToPaymentRequestUpdates(userId, callback) {
+    const paymentRequestsRef = collection(db, 'paymentRequests');
+    const q = query(
+      paymentRequestsRef,
+      where('userId', '==', userId),
+      where('type', '==', 'affiliate_joining'),
+      orderBy('submittedAt', 'desc'),
+      limit(1)
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const docSnapshot = snapshot.docs[0];
+        const data = {
+          id: docSnapshot.id,
+          ...docSnapshot.data(),
+          submittedAt: docSnapshot.data().submittedAt?.toDate() || new Date(),
+          processedAt: docSnapshot.data().processedAt?.toDate() || null
+        };
+        callback(data);
+      } else {
+        callback(null);
+      }
+    });
+  }
+
+  // Admin: Subscribe to all payment request updates
+  static subscribeToAllPaymentRequests(callback) {
+    const paymentRequestsRef = collection(db, 'paymentRequests');
+    const q = query(
+      paymentRequestsRef,
+      where('type', '==', 'affiliate_joining'),
+      orderBy('submittedAt', 'desc'),
+      limit(50)
+    );
+
+    return onSnapshot(q, async (snapshot) => {
+      const requests = [];
+      
+      for (const docSnapshot of snapshot.docs) {
+        const requestData = docSnapshot.data();
+        
+        // Get user details
+        const userDoc = await getDoc(doc(db, 'users', requestData.userId));
+        const userData = userDoc.exists() ? userDoc.data() : {};
+
+        requests.push({
+          id: docSnapshot.id,
+          ...requestData,
+          submittedAt: requestData.submittedAt?.toDate() || new Date(),
+          processedAt: requestData.processedAt?.toDate() || null,
+          userName: userData.name || 'Unknown',
+          userEmail: userData.email || 'Unknown',
+          userPhone: userData.phone || 'Unknown',
+          referralCode: userData.referralCode || 'Unknown'
+        });
+      }
+      
+      callback(requests);
+    });
   }
 }
 
