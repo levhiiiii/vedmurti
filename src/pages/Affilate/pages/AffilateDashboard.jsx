@@ -459,6 +459,41 @@ export default function AffiliateDashboard({ userId }) {
               exit={{ opacity: 0, y: -20 }}
               transition={{ duration: 0.3 }}
             >
+              {/* Referral Sharing Card */}
+              <div className="mb-8">
+                <div className="bg-gradient-to-r from-green-400 to-blue-500 p-6 rounded-2xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+                      <FaShareAlt className="inline-block" />
+                      Share your referral link
+                    </h2>
+                    <p className="text-white/90 text-sm mb-2">Invite friends and earn rewards! Share your unique referral link below:</p>
+                    <div className="bg-white rounded-lg px-4 py-2 flex items-center gap-2 shadow-inner">
+                      <span className="truncate text-gray-700 text-sm" title={`${window.location.origin}/register?ref=${user.referralCode}`}>
+                        {`${window.location.origin}/register?ref=${user.referralCode}`}
+                      </span>
+                      <button
+                        onClick={copyReferralLink}
+                        className="ml-2 px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs flex items-center gap-1"
+                        title="Copy referral link"
+                      >
+                        <FaCopy />
+                        {copied ? 'Copied!' : 'Copy'}
+                      </button>
+                      {navigator.share && (
+                        <button
+                          onClick={shareReferralLink}
+                          className="ml-2 px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs flex items-center gap-1"
+                          title="Share via..."
+                        >
+                          <FaShareAlt />
+                          Share
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
               {/* Key Metrics Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <motion.div 
