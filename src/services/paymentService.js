@@ -833,6 +833,50 @@ export class PaymentService {
       callback(requests);
     });
   }
+
+  // Admin: Get payment request statistics
+  static async getPaymentRequestStatistics() {
+    try {
+      const paymentRequestsRef = collection(db, 'paymentRequests');
+      const q = query(paymentRequestsRef);
+      const querySnapshot = await getDocs(q);
+      let totalRequests = 0;
+      let pendingRequests = 0;
+      let approvedRequests = 0;
+      let rejectedRequests = 0;
+      let totalAmount = 0;
+      let approvedAmount = 0;
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        totalRequests++;
+        totalAmount += data.amount || 0;
+        if (data.status === 'pending') pendingRequests++;
+        if (data.status === 'approved') {
+          approvedRequests++;
+          approvedAmount += data.amount || 0;
+        }
+        if (data.status === 'rejected') rejectedRequests++;
+      });
+      return {
+        totalRequests,
+        pendingRequests,
+        approvedRequests,
+        rejectedRequests,
+        totalAmount,
+        approvedAmount
+      };
+    } catch (error) {
+      console.error('Error getting payment request statistics:', error);
+      return {
+        totalRequests: 0,
+        pendingRequests: 0,
+        approvedRequests: 0,
+        rejectedRequests: 0,
+        totalAmount: 0,
+        approvedAmount: 0
+      };
+    }
+  }
 }
 
 export default PaymentService;
