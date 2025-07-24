@@ -112,6 +112,7 @@ const App = () => {
             <Route path="payouts" element={<PayoutPage />} />
             <Route path="tree" element={<MLMNetwork />} />
             <Route path="profile" element={<AffilateProfile />} />
+            <Route path="add-product" element={<ProductForm />} />
           </Route>
 
 

@@ -6,7 +6,8 @@ import {
   FaHome,
   FaAward,
   FaTimes,
-  FaBars
+  FaBars,
+  FaBoxOpen
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 
@@ -22,6 +23,7 @@ const AdminSidebar = ({ isSidebarOpen, toggleSidebar, isMobile, activeItem, setA
     { name: 'Payment Requests', icon: FaMoneyBill, path: '/admin/payment-requests' },
     { name: 'Network', icon: FaNetworkWired, path: '/admin/tree' },
     { name: 'Payouts', icon: FaMoneyBill, path: '/admin/payouts' },
+    { name: 'Add Product', icon: FaBoxOpen, path: '/admin/add-product' },
     { name: 'Profile', icon: FaUser, path: '/admin/profile' },
   ];
 

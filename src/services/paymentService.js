@@ -553,7 +553,6 @@ export class PaymentService {
       if (status === 'all') {
         q = query(
           paymentRequestsRef,
-          where('type', '==', 'affiliate_joining'),
           orderBy('submittedAt', 'desc'),
           limit(limitCount)
         );
@@ -561,7 +560,6 @@ export class PaymentService {
         q = query(
           paymentRequestsRef,
           where('status', '==', status),
-          where('type', '==', 'affiliate_joining'),
           orderBy('submittedAt', 'desc'),
           limit(limitCount)
         );

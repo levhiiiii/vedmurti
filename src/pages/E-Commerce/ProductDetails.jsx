@@ -19,6 +19,7 @@ const ProductDetails = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [addingToCart, setAddingToCart] = useState(false);
+  const [mainImageIdx, setMainImageIdx] = useState(0);
   
   const { addToCart, isInCart, getCartItem } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
@@ -154,6 +155,13 @@ const ProductDetails = () => {
     return null;
   }
 
+  // Determine images array
+  const images = product.images && Array.isArray(product.images) && product.images.length > 0
+    ? product.images
+    : product.image
+      ? [product.image]
+      : ['/placeholder-product.jpg'];
+
   return (
     <div className="bg-green-50 min-h-screen">
       {/* Navigation */}
@@ -179,11 +187,29 @@ const ProductDetails = () => {
           <div className="mb-8 lg:mb-0">
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <img
-                src={product.image || '/placeholder-product.jpg'}
+                src={images[mainImageIdx]}
                 alt={product.name}
                 className="w-full h-96 object-contain"
               />
             </div>
+            {images.length > 1 && (
+              <div className="flex space-x-2 mt-4 justify-center">
+                {images.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setMainImageIdx(idx)}
+                    className={`border rounded-md p-1 focus:outline-none ${mainImageIdx === idx ? 'border-green-600' : 'border-gray-300'}`}
+                    style={{ width: 64, height: 64 }}
+                  >
+                    <img
+                      src={img}
+                      alt={`Thumbnail ${idx+1}`}
+                      className="w-full h-full object-cover rounded"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Product Info */}

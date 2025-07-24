@@ -279,17 +279,23 @@ const ShopPage = () => {
 
                     {/* Product Image */}
                     <div className="relative h-48 bg-green-50 flex items-center justify-center p-4">
-                      {product.image ? (
-                        <img
-                          src={product.image}
-                          alt={product.name}
-                          className="h-full object-contain"
-                        />
-                      ) : (
-                        <div className="text-gray-400">No Image</div>
-                      )}
+                      {(() => {
+                        let imgSrc = '/placeholder-product.jpg';
+                        if (product.images && Array.isArray(product.images) && product.images.length > 0) {
+                          imgSrc = product.images[0];
+                        } else if (product.image) {
+                          imgSrc = product.image;
+                        }
+                        return (
+                          <img
+                            src={imgSrc}
+                            alt={product.name}
+                            className="h-full object-contain"
+                          />
+                        );
+                      })()}
                       <button
-                        onClick={() => handleToggleWishlist(product)}
+                        onClick={(e) => { e.stopPropagation(); handleToggleWishlist(product); }}
                         className={`absolute top-2 right-2 p-2 rounded-full shadow transition-colors ${
                           isInWishlist(product.id)
                             ? 'bg-red-100 text-red-600 hover:bg-red-200'

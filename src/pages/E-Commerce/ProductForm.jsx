@@ -17,8 +17,8 @@ const ProductForm = () => {
     featured: false,
     discountPercentage: 0,
   });
-  const [imageFile, setImageFile] = useState(null);
-  const [previewImage, setPreviewImage] = useState('');
+  const [imageFiles, setImageFiles] = useState([]);
+  const [previewImages, setPreviewImages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [categories, setCategories] = useState(['Juices', 'Supplements', 'Wellness Kits', 'Skincare']);
@@ -59,29 +59,26 @@ const ProductForm = () => {
   };
 
   const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // Validate file type
+    const files = Array.from(e.target.files);
+    // Validate all files
+    for (const file of files) {
       if (!file.type.match('image.*')) {
-        setErrors(prev => ({ ...prev, image: 'Please select an image file' }));
+        setErrors(prev => ({ ...prev, image: 'Please select only image files' }));
         return;
       }
-
-      // Validate file size (max 2MB)
       if (file.size > 2 * 1024 * 1024) {
-        setErrors(prev => ({ ...prev, image: 'Image size should be less than 2MB' }));
+        setErrors(prev => ({ ...prev, image: 'Each image should be less than 2MB' }));
         return;
       }
-
-      setImageFile(file);
-      setPreviewImage(URL.createObjectURL(file));
-      setErrors(prev => ({ ...prev, image: '' }));
     }
+    setImageFiles(files);
+    setPreviewImages(files.map(file => URL.createObjectURL(file)));
+    setErrors(prev => ({ ...prev, image: '' }));
   };
 
-  const removeImage = () => {
-    setImageFile(null);
-    setPreviewImage('');
+  const removeImage = (index) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviewImages(prev => prev.filter((_, i) => i !== index));
   };
 
   const addCategory = () => {
@@ -98,8 +95,7 @@ const ProductForm = () => {
     if (!product.description.trim()) newErrors.description = 'Description is required';
     if (!product.price) newErrors.price = 'Price is required';
     if (!product.category) newErrors.category = 'Category is required';
-    if (!imageFile) newErrors.image = 'Product image is required';
-
+    if (imageFiles.length === 0) newErrors.image = 'At least one product image is required';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -113,12 +109,13 @@ const ProductForm = () => {
     const storage = getStorage(app);
 
     try {
-      // Upload image to Firebase Storage
-      let imageUrl = '';
-      if (imageFile) {
-        const storageRef = ref(storage, `products/${generateProductId()}/${imageFile.name}`);
-        await uploadBytes(storageRef, imageFile);
-        imageUrl = await getDownloadURL(storageRef);
+      // Upload all images to Firebase Storage
+      let imageUrls = [];
+      for (const file of imageFiles) {
+        const storageRef = ref(storage, `products/${generateProductId()}/${file.name}`);
+        await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(storageRef);
+        imageUrls.push(url);
       }
 
       // Create product in Firestore
@@ -128,7 +125,7 @@ const ProductForm = () => {
         description: product.description,
         price: parseFloat(product.price),
         originalPrice: parseFloat(product.originalPrice) || parseFloat(product.price),
-        image: imageUrl,
+        images: imageUrls, // Array of image URLs
         category: product.category,
         stock: parseInt(product.stock),
         featured: product.featured,
@@ -160,48 +157,45 @@ const ProductForm = () => {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Product Image */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Product Image</label>
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              {previewImage ? (
-                <>
-                  <img 
-                    src={previewImage} 
-                    alt="Product preview" 
-                    className="w-32 h-32 object-cover rounded-md border border-gray-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={removeImage}
-                    className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors"
-                  >
-                    <FaTimes className="text-xs" />
-                  </button>
-                </>
-              ) : (
-                <div className="w-32 h-32 flex items-center justify-center bg-gray-100 rounded-md border-2 border-dashed border-gray-300">
-                  <FiImage className="text-3xl text-gray-400" />
-                </div>
-              )}
-            </div>
-            <div>
-              <input
-                type="file"
-                id="productImage"
-                onChange={handleImageChange}
-                accept="image/*"
-                className="hidden"
-              />
-              <label
-                htmlFor="productImage"
-                className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 cursor-pointer"
-              >
-                <FaUpload className="mr-2" />
-                {previewImage ? 'Change Image' : 'Upload Image'}
-              </label>
-              <p className="mt-1 text-xs text-gray-500">JPEG, PNG (Max 2MB)</p>
-              {errors.image && <p className="mt-1 text-sm text-red-600">{errors.image}</p>}
-            </div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Product Images</label>
+          <div className="flex items-center space-x-4 flex-wrap">
+            {previewImages.map((img, idx) => (
+              <div className="relative mb-2" key={idx}>
+                <img 
+                  src={img} 
+                  alt={`Product preview ${idx+1}`} 
+                  className="w-32 h-32 object-cover rounded-md border border-gray-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeImage(idx)}
+                  className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors"
+                >
+                  <FaTimes className="text-xs" />
+                </button>
+              </div>
+            ))}
+            {previewImages.length < 5 && (
+              <div>
+                <input
+                  type="file"
+                  id="productImage"
+                  onChange={handleImageChange}
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                />
+                <label
+                  htmlFor="productImage"
+                  className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 cursor-pointer"
+                >
+                  <FaUpload className="mr-2" />
+                  {previewImages.length > 0 ? 'Add More Images' : 'Upload Images'}
+                </label>
+                <p className="mt-1 text-xs text-gray-500">Up to 5 images, JPEG, PNG (Max 2MB each)</p>
+                {errors.image && <p className="mt-1 text-sm text-red-600">{errors.image}</p>}
+              </div>
+            )}
           </div>
         </div>
 
