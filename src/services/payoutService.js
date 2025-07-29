@@ -23,15 +23,15 @@ const db = getFirestore(app);
 
 export class PayoutService {
   
-  // Process scheduled payouts (1st, 11th, 21st of each month)
+  // Process scheduled payouts (2nd, 12th, 22nd of each month) - Vedmurti Plan
   static async processScheduledPayouts() {
     try {
       const today = new Date();
       const dayOfMonth = today.getDate();
       
-      // Check if today is a payout day
-      if (![1, 11, 21].includes(dayOfMonth)) {
-        console.log('Not a payout day');
+      // Check if today is a payout day - Vedmurti Plan Schedule
+      if (![2, 12, 22].includes(dayOfMonth)) {
+        console.log('Not a payout day - Vedmurti Plan schedule: 2nd, 12th, 22nd');
         return;
       }
 
@@ -53,7 +53,31 @@ export class PayoutService {
         const userData = userDoc.data();
         const pendingAmount = userData.affiliateBalance || 0;
         
+        // Check KYC completion - Vedmurti Plan requirement
+        const mlmUserDoc = await getDoc(doc(db, 'mlmUsers', userId));
+        const kycCompleted = mlmUserDoc.exists() ? mlmUserDoc.data().kycCompleted : false;
+        
         if (pendingAmount >= 100) { // Minimum payout threshold
+          // Hold payout if KYC not completed
+          if (!kycCompleted) {
+            // Create held payout record
+            const heldPayoutData = {
+              userId,
+              amount: pendingAmount,
+              status: 'held_kyc_pending',
+              reason: 'KYC verification required',
+              payoutDate: serverTimestamp(),
+              heldDate: serverTimestamp(),
+              payoutCycle: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`,
+              createdAt: serverTimestamp()
+            };
+
+            const heldPayoutRef = doc(collection(db, 'heldPayouts'));
+            batch.set(heldPayoutRef, heldPayoutData);
+            
+            continue; // Skip this user for now
+          }
+          
           // Apply 5% deduction
           const deductionAmount = pendingAmount * 0.05;
           const payoutAmount = pendingAmount - deductionAmount;
@@ -370,7 +394,7 @@ export class PayoutService {
     }
   }
 
-  // Get next payout date
+  // Get next payout date - Vedmurti Plan (2nd, 12th, 22nd)
   static getNextPayoutDate() {
     const today = new Date();
     const currentDay = today.getDate();
@@ -379,15 +403,15 @@ export class PayoutService {
     
     let nextPayoutDate;
     
-    if (currentDay < 1) {
-      nextPayoutDate = new Date(currentYear, currentMonth, 1);
-    } else if (currentDay < 11) {
-      nextPayoutDate = new Date(currentYear, currentMonth, 11);
-    } else if (currentDay < 21) {
-      nextPayoutDate = new Date(currentYear, currentMonth, 21);
+    if (currentDay < 2) {
+      nextPayoutDate = new Date(currentYear, currentMonth, 2);
+    } else if (currentDay < 12) {
+      nextPayoutDate = new Date(currentYear, currentMonth, 12);
+    } else if (currentDay < 22) {
+      nextPayoutDate = new Date(currentYear, currentMonth, 22);
     } else {
-      // Next month's 1st
-      nextPayoutDate = new Date(currentYear, currentMonth + 1, 1);
+      // Next month's 2nd
+      nextPayoutDate = new Date(currentYear, currentMonth + 1, 2);
     }
     
     return nextPayoutDate;
@@ -402,17 +426,17 @@ export class PayoutService {
     return Math.max(0, diffDays);
   }
 
-  // Get payout calendar for the year
+  // Get payout calendar for the year - Vedmurti Plan
   static getPayoutCalendar(year = new Date().getFullYear()) {
     const payoutDates = [];
     
     for (let month = 0; month < 12; month++) {
-      // 1st of each month
-      payoutDates.push(new Date(year, month, 1));
-      // 11th of each month
-      payoutDates.push(new Date(year, month, 11));
-      // 21st of each month
-      payoutDates.push(new Date(year, month, 21));
+      // 2nd of each month
+      payoutDates.push(new Date(year, month, 2));
+      // 12th of each month
+      payoutDates.push(new Date(year, month, 12));
+      // 22nd of each month
+      payoutDates.push(new Date(year, month, 22));
     }
     
     return payoutDates;

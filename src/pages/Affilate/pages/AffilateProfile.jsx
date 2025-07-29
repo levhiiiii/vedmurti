@@ -30,7 +30,7 @@ const AffilateProfile = () => {
     joinDate: "2022-03-15",
     birthday: "1985-07-22",
     gender: "Male",
-    bio: "Experienced MLM professional with 5+ years in the industry. Passionate about helping my team succeed.",
+    bio: "Experienced Affilate professional with 5+ years in the industry. Passionate about helping my team succeed.",
     socialMedia: {
       linkedin: "linkedin.com/in/alexjohnson",
       facebook: "facebook.com/alexjohnson",

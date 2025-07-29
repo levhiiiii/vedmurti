@@ -23,13 +23,13 @@ const db = getFirestore(app);
 
 export class MLMService {
   
-  // Register user in MLM system with binary tree placement
+  // Register user in MLM system with binary tree placement - Vedmurti Plan Implementation
   static async registerUserInMLM(userId, sponsorReferralCode, paymentProof) {
     try {
       return await runTransaction(db, async (transaction) => {
-        // 1. Validate payment (₹1500)
+        // 1. Validate payment (₹1500 joining amount)
         if (!paymentProof || paymentProof.amount < 1500) {
-          throw new Error('Payment proof of ₹1500 required');
+          throw new Error('Payment proof of ₹1500 required for joining');
         }
 
         // 2. Find sponsor
@@ -46,13 +46,13 @@ export class MLMService {
         const sponsorData = sponsorSnapshot.docs[0].data();
         const sponsorId = sponsorSnapshot.docs[0].id;
 
-        // 3. Generate unique MLM ID
+        // 3. Generate unique MLM ID (VED format)
         const mlmId = await this.generateMLMId();
 
         // 4. Find placement position in binary tree
         const placement = await this.findOptimalPlacement(sponsorReferralCode);
 
-        // 5. Create MLM user record
+        // 5. Create MLM user record with Vedmurti Plan structure
         const mlmUserData = {
           userId,
           mlmId,
@@ -66,21 +66,46 @@ export class MLMService {
           totalLeftCount: 0,
           totalRightCount: 0,
           pairsCount: 0,
-          promotionalIncome: 0,
-          mentorshipIncome: 0,
-          performanceRewards: 0,
+          
+          // Vedmurti Plan Income Structure
+          promotionalIncome: 0,        // ₹400 per pair
+          leadershipIncome: 0,         // Based on team turnover
+          rewardsIncome: 0,            // Festival & achievement rewards
           totalIncome: 0,
-          dailyCycles: 0,
+          
+          // Daily Capping System
+          dailyPairs: 0,               // Max 400 pairs per day
+          dailyIncome: 0,              // Max ₹2000 per day from promotional
+          lastDailyReset: serverTimestamp(),
+          
+          // Payout Cycle Management
           currentCycleIncome: 0,
-          currentCycleMentorshipIncome: 0,
-          maxDailyIncome: 4000, // ₹4000 per day max
-          maxDailyMentorshipIncome: 2000, // ₹2000 per day max
-          lastCycleReset: serverTimestamp(),
-          joinDate: serverTimestamp(),
-          isActive: true,
+          pendingPayout: 0,
+          totalPayoutsReceived: 0,
+          lastPayoutDate: null,
+          
+          // Team Performance Metrics
+          teamTurnover: 0,
+          leftTeamTurnover: 0,
+          rightTeamTurnover: 0,
+          qualifiedReferrals: 0,       // For leadership income eligibility
+          
+          // Rank & Achievement System
           currentRank: 'Starter',
           rankLevel: 1,
-          paymentProof: paymentProof
+          achievementPoints: 0,
+          festivalRewards: 0,
+          
+          // System Fields
+          joinDate: serverTimestamp(),
+          isActive: true,
+          kycCompleted: false,
+          paymentProof: paymentProof,
+          
+          // Vedmurti Plan Specific
+          joiningAmount: 1500,
+          productPurchaseRequired: true,
+          eligibleForLeadership: false  // Requires 10 active referrals
         };
 
         // 6. Save MLM user data
@@ -103,11 +128,15 @@ export class MLMService {
           mlmId: mlmId,
           mlmJoinDate: serverTimestamp(),
           currentRank: 'Starter',
-          rankLevel: 1
+          rankLevel: 1,
+          joiningAmount: 1500
         });
 
         // 9. Update upline counts and trigger income calculations
         await this.updateUplineCounts(userId, transaction);
+
+        // 10. Check if sponsor becomes eligible for leadership income
+        await this.checkLeadershipEligibility(sponsorId, transaction);
 
         return mlmUserData;
       });
@@ -117,13 +146,14 @@ export class MLMService {
     }
   }
 
-  // Generate unique MLM ID
+  // Generate unique MLM ID (VED format as per Vedmurti Plan)
   static async generateMLMId() {
     let mlmId;
     let exists = true;
     
     while (exists) {
-      mlmId = 'MLM' + Math.floor(100000 + Math.random() * 900000);
+      // Format: VED + 6 digit number (as per Vedmurti Plan)
+      mlmId = 'VED' + Math.floor(100000 + Math.random() * 900000);
       const mlmUserQuery = query(
         collection(db, 'mlmUsers'),
         where('mlmId', '==', mlmId)
@@ -269,7 +299,7 @@ export class MLMService {
     }
   }
 
-  // Process promotional income (₹400 per pair with daily capping)
+  // Process promotional income - Vedmurti Plan Implementation
   static async processPromotionalIncome(userId, newPairs, transaction) {
     try {
       const userRef = doc(db, 'mlmUsers', userId);
@@ -279,29 +309,26 @@ export class MLMService {
       
       const userData = userDoc.data();
       const today = new Date();
-      const lastReset = userData.lastCycleReset?.toDate() || new Date(0);
+      const lastReset = userData.lastDailyReset?.toDate() || new Date(0);
       
-      // Check if daily cycle needs reset (every 12 hours: 12am-12pm & 12pm-12am)
-      const currentHour = today.getHours();
-      const lastResetHour = lastReset.getHours();
-      const shouldReset = (
-        (currentHour >= 12 && lastResetHour < 12) || // Crossed noon
-        (currentHour < 12 && lastResetHour >= 12) || // Crossed midnight
-        (today.getDate() !== lastReset.getDate()) // Different day
-      );
+      // Check if daily reset is needed (every 24 hours)
+      const hoursDiff = (today - lastReset) / (1000 * 60 * 60);
+      const shouldReset = hoursDiff >= 24;
       
-      let dailyCycles = shouldReset ? 0 : (userData.dailyCycles || 0);
-      let currentCycleIncome = shouldReset ? 0 : (userData.currentCycleIncome || 0);
+      let dailyPairs = shouldReset ? 0 : (userData.dailyPairs || 0);
+      let dailyIncome = shouldReset ? 0 : (userData.dailyIncome || 0);
       
-      // Calculate income with daily capping (max 2 cycles = ₹4000/day)
-      const maxCycles = 2;
+      // Vedmurti Plan: ₹400 per pair, max 400 pairs/day = ₹2000/day
       const incomePerPair = 400;
-      const maxDailyIncome = 4000;
-      const availableCycles = maxCycles - dailyCycles;
-      const remainingDailyIncome = maxDailyIncome - currentCycleIncome;
+      const maxDailyPairs = 400;
+      const maxDailyIncome = 2000; // Updated as per plan
       
-      if (availableCycles > 0 && remainingDailyIncome > 0) {
-        const processablePairs = Math.min(newPairs, availableCycles);
+      const availablePairs = maxDailyPairs - dailyPairs;
+      const remainingDailyIncome = maxDailyIncome - dailyIncome;
+      
+      if (availablePairs > 0 && remainingDailyIncome > 0) {
+        // Process pairs with 2:1 or 1:2 ratio matching
+        const processablePairs = Math.min(newPairs, availablePairs);
         const potentialIncome = processablePairs * incomePerPair;
         const finalIncome = Math.min(potentialIncome, remainingDailyIncome);
         const actualPairs = Math.floor(finalIncome / incomePerPair);
@@ -311,10 +338,12 @@ export class MLMService {
           transaction.update(userRef, {
             promotionalIncome: increment(finalIncome),
             totalIncome: increment(finalIncome),
-            pairsCount: increment(newPairs), // Count all pairs, even if not all generate income
-            dailyCycles: dailyCycles + actualPairs,
-            currentCycleIncome: shouldReset ? finalIncome : increment(finalIncome),
-            lastCycleReset: shouldReset ? serverTimestamp() : userData.lastCycleReset
+            pairsCount: increment(actualPairs),
+            dailyPairs: shouldReset ? actualPairs : increment(actualPairs),
+            dailyIncome: shouldReset ? finalIncome : increment(finalIncome),
+            currentCycleIncome: increment(finalIncome),
+            lastDailyReset: shouldReset ? serverTimestamp() : userData.lastDailyReset,
+            teamTurnover: increment(finalIncome)
           });
 
           // Update user's affiliate balance
@@ -325,27 +354,32 @@ export class MLMService {
             promotionalIncome: increment(finalIncome)
           });
 
-          // Create income record
+          // Create income record with Vedmurti Plan details
           const incomeRecord = {
             userId,
             type: 'promotional',
             amount: finalIncome,
             pairs: actualPairs,
             totalPairs: newPairs,
-            description: `Promotional Incentive: ₹400 × ${actualPairs} pairs (${newPairs} total pairs)`,
-            cycle: dailyCycles + 1,
-            maxCycles: maxCycles,
-            dailyLimit: maxDailyIncome,
-            remainingLimit: remainingDailyIncome - finalIncome,
+            description: `Promotional Income: ₹400 × ${actualPairs} pairs (Binary Plan)`,
+            dailyPairsUsed: actualPairs,
+            remainingDailyPairs: maxDailyPairs - (dailyPairs + actualPairs),
+            remainingDailyIncome: remainingDailyIncome - finalIncome,
+            pairRatio: '2:1 or 1:2', // Vedmurti Plan specification
             createdAt: serverTimestamp(),
-            status: 'completed'
+            status: 'completed',
+            payoutEligible: true,
+            payoutCycle: this.getCurrentPayoutCycle()
           };
 
           const incomeRef = doc(collection(db, 'incomeRecords'));
           transaction.set(incomeRef, incomeRecord);
 
-          // Trigger mentorship income for uplines
-          await this.calculateMentorshipIncome(userId, finalIncome);
+          // Trigger leadership income calculation for uplines
+          await this.calculateLeadershipIncome(userId, finalIncome, transaction);
+          
+          // Update team turnover for uplines
+          await this.updateTeamTurnover(userId, finalIncome, transaction);
         }
       }
     } catch (error) {
@@ -354,8 +388,8 @@ export class MLMService {
     }
   }
 
-  // Calculate mentorship income based on Vedmurti Plan
-  static async calculateMentorshipIncome(userId, triggerAmount = 400) {
+  // Calculate Leadership Income - Vedmurti Plan Implementation
+  static async calculateLeadershipIncome(userId, triggerAmount, transaction) {
     try {
       const userDoc = await getDoc(doc(db, 'mlmUsers', userId));
       if (!userDoc.exists()) return;
@@ -364,99 +398,379 @@ export class MLMService {
       let currentUserId = userData.sponsorId;
       let level = 1;
       
-      const batch = writeBatch(db);
-
-      // Enhanced mentorship income structure
-      const mentorshipRates = {
-        1: { amount: 300, maxPerCycle: 500, levelName: 'A' }, // Direct Sponsor
-        2: { amount: 1200, maxPerCycle: 500, levelName: 'B' }, // Sponsor's Sponsor
-        3: { amount: 500, maxPerCycle: 500, levelName: 'C' },
-        4: { amount: 400, maxPerCycle: 500, levelName: 'C' },
-        5: { amount: 300, maxPerCycle: 500, levelName: 'C' },
-        6: { amount: 200, maxPerCycle: 500, levelName: 'C' },
-        7: { amount: 150, maxPerCycle: 500, levelName: 'C' },
-        8: { amount: 100, maxPerCycle: 500, levelName: 'C' },
-        9: { amount: 75, maxPerCycle: 500, levelName: 'C' },
-        10: { amount: 50, maxPerCycle: 500, levelName: 'C' }
-      };
-
+      // Leadership income is based on company turnover and requires 10 active referrals
       while (currentUserId && level <= 10) {
         const uplineDoc = await getDoc(doc(db, 'mlmUsers', currentUserId));
         if (!uplineDoc.exists()) break;
 
         const uplineData = uplineDoc.data();
         
-        // Skip if upline is not active
-        if (!uplineData.isActive) {
+        // Check if upline is eligible for leadership income (10 active referrals)
+        if (!uplineData.eligibleForLeadership || uplineData.qualifiedReferrals < 10) {
           currentUserId = uplineData.sponsorId;
           level++;
           continue;
         }
 
-        const rateInfo = mentorshipRates[level];
-        if (!rateInfo) break;
-
-        // Check daily cycle limits
-        const today = new Date();
-        const lastReset = uplineData.lastCycleReset?.toDate() || new Date(0);
-        const hoursDiff = (today - lastReset) / (1000 * 60 * 60);
-        const shouldReset = hoursDiff >= 12;
-
-        let currentCycleMentorshipIncome = shouldReset ? 0 : (uplineData.currentCycleMentorshipIncome || 0);
-        const maxPerCycle = rateInfo.maxPerCycle;
-        const dailyLimit = 2000; // ₹2000 per day max
+        // Calculate leadership income based on team performance
+        const teamTurnover = uplineData.teamTurnover || 0;
+        const leadershipRate = this.getLeadershipRate(level, teamTurnover);
         
-        // Check if user can receive more mentorship income
-        const remainingCycleLimit = Math.max(0, maxPerCycle - currentCycleMentorshipIncome);
-        const remainingDailyLimit = Math.max(0, dailyLimit - currentCycleMentorshipIncome);
-        const finalIncome = Math.min(rateInfo.amount, remainingCycleLimit, remainingDailyLimit);
-
-        if (finalIncome > 0) {
-          // Update upline income
+        if (leadershipRate > 0) {
+          const leadershipIncome = Math.min(leadershipRate, triggerAmount * 0.1); // 10% of trigger amount
+          
+          // Update upline leadership income
           const uplineRef = doc(db, 'mlmUsers', currentUserId);
-          batch.update(uplineRef, {
-            mentorshipIncome: increment(finalIncome),
-            totalIncome: increment(finalIncome),
-            currentCycleMentorshipIncome: shouldReset ? finalIncome : increment(finalIncome),
-            lastCycleReset: shouldReset ? serverTimestamp() : uplineData.lastCycleReset
+          transaction.update(uplineRef, {
+            leadershipIncome: increment(leadershipIncome),
+            totalIncome: increment(leadershipIncome),
+            currentCycleIncome: increment(leadershipIncome)
           });
 
           // Update user's affiliate balance
           const mainUserRef = doc(db, 'users', currentUserId);
-          batch.update(mainUserRef, {
-            affiliateBalance: increment(finalIncome),
-            totalEarnings: increment(finalIncome),
-            mentorshipIncome: increment(finalIncome)
+          transaction.update(mainUserRef, {
+            affiliateBalance: increment(leadershipIncome),
+            totalEarnings: increment(leadershipIncome),
+            leadershipIncome: increment(leadershipIncome)
           });
 
           // Create income record
           const incomeRecord = {
             userId: currentUserId,
-            type: 'mentorship',
-            amount: finalIncome,
+            type: 'leadership',
+            amount: leadershipIncome,
             level: level,
-            levelType: rateInfo.levelName,
             fromUserId: userId,
             triggerAmount: triggerAmount,
-            description: `Mentorship Level ${level} (${rateInfo.levelName}): ₹${finalIncome}`,
-            maxPerCycle: maxPerCycle,
-            remainingCycleLimit: remainingCycleLimit - finalIncome,
-            remainingDailyLimit: remainingDailyLimit - finalIncome,
+            teamTurnover: teamTurnover,
+            description: `Leadership Income Level ${level}: ₹${leadershipIncome}`,
+            qualifiedReferrals: uplineData.qualifiedReferrals,
             createdAt: serverTimestamp(),
-            status: 'completed'
+            status: 'completed',
+            payoutEligible: true,
+            payoutCycle: this.getCurrentPayoutCycle()
           };
 
           const incomeRef = doc(collection(db, 'incomeRecords'));
-          batch.set(incomeRef, incomeRecord);
+          transaction.set(incomeRef, incomeRecord);
         }
 
         currentUserId = uplineData.sponsorId;
         level++;
       }
+    } catch (error) {
+      console.error('Error calculating leadership income:', error);
+      throw error;
+    }
+  }
+
+  // Get leadership income rate based on level and team turnover
+  static getLeadershipRate(level, teamTurnover) {
+    // Leadership income rates based on Vedmurti Plan
+    const rates = {
+      1: Math.min(500, teamTurnover * 0.05),  // 5% of team turnover, max ₹500
+      2: Math.min(400, teamTurnover * 0.04),  // 4% of team turnover, max ₹400
+      3: Math.min(300, teamTurnover * 0.03),  // 3% of team turnover, max ₹300
+      4: Math.min(200, teamTurnover * 0.02),  // 2% of team turnover, max ₹200
+      5: Math.min(150, teamTurnover * 0.015), // 1.5% of team turnover, max ₹150
+      6: Math.min(100, teamTurnover * 0.01),  // 1% of team turnover, max ₹100
+      7: Math.min(75, teamTurnover * 0.008),  // 0.8% of team turnover, max ₹75
+      8: Math.min(50, teamTurnover * 0.006),  // 0.6% of team turnover, max ₹50
+      9: Math.min(40, teamTurnover * 0.004),  // 0.4% of team turnover, max ₹40
+      10: Math.min(30, teamTurnover * 0.002)  // 0.2% of team turnover, max ₹30
+    };
+    
+    return rates[level] || 0;
+  }
+
+  // Update team turnover for uplines
+  static async updateTeamTurnover(userId, amount, transaction) {
+    try {
+      const userDoc = await getDoc(doc(db, 'mlmUsers', userId));
+      if (!userDoc.exists()) return;
+
+      const userData = userDoc.data();
+      let currentUserId = userData.placementParent;
+      
+      while (currentUserId) {
+        const uplineRef = doc(db, 'mlmUsers', currentUserId);
+        const uplineDoc = await getDoc(uplineRef);
+        
+        if (!uplineDoc.exists()) break;
+        
+        const uplineData = uplineDoc.data();
+        const position = userData.position;
+        
+        // Update team turnover based on position
+        const turnoverField = position === 'left' ? 'leftTeamTurnover' : 'rightTeamTurnover';
+        transaction.update(uplineRef, {
+          teamTurnover: increment(amount),
+          [turnoverField]: increment(amount)
+        });
+        
+        currentUserId = uplineData.placementParent;
+      }
+    } catch (error) {
+      console.error('Error updating team turnover:', error);
+      throw error;
+    }
+  }
+
+  // Check leadership eligibility (requires 10 active referrals)
+  static async checkLeadershipEligibility(userId, transaction) {
+    try {
+      // Count active referrals
+      const referralsQuery = query(
+        collection(db, 'users'),
+        where('referredBy', '==', userId),
+        where('affiliateStatus', '==', true)
+      );
+      
+      const referralsSnapshot = await getDocs(referralsQuery);
+      const qualifiedReferrals = referralsSnapshot.size;
+      
+      const userRef = doc(db, 'mlmUsers', userId);
+      transaction.update(userRef, {
+        qualifiedReferrals: qualifiedReferrals,
+        eligibleForLeadership: qualifiedReferrals >= 10
+      });
+      
+    } catch (error) {
+      console.error('Error checking leadership eligibility:', error);
+      throw error;
+    }
+  }
+
+  // Get current payout cycle (2nd, 12th, 22nd of month) - Vedmurti Plan
+  static getCurrentPayoutCycle() {
+    const today = new Date();
+    const day = today.getDate();
+    const month = today.getMonth() + 1;
+    const year = today.getFullYear();
+    
+    let payoutDay;
+    if (day <= 2) payoutDay = 2;
+    else if (day <= 12) payoutDay = 12;
+    else if (day <= 22) payoutDay = 22;
+    else {
+      // Next month's 2nd
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextYear = month === 12 ? year + 1 : year;
+      return `${nextYear}-${String(nextMonth).padStart(2, '0')}-02`;
+    }
+    
+    return `${year}-${String(month).padStart(2, '0')}-${String(payoutDay).padStart(2, '0')}`;
+  }
+
+  // Calculate Rewards Income - Vedmurti Plan Implementation
+  static async calculateRewardsIncome(userId, pairsCount, businessVolume) {
+    try {
+      const rewards = [];
+      let totalReward = 0;
+
+      // Vedmurti Plan Reward Slabs
+      const rewardSlabs = [
+        { minPairs: 50, maxPairs: 99, reward: 2500, description: "First 50 pairs achievement" },
+        { minPairs: 100, maxPairs: 199, reward: 5000, description: "100 pairs milestone" },
+        { minPairs: 200, maxPairs: 299, reward: 7500, description: "200 pairs milestone" },
+        { minPairs: 300, maxPairs: 399, reward: 10000, description: "300 pairs milestone" },
+        { minPairs: 400, maxPairs: 499, reward: 12500, description: "400 pairs milestone" },
+        { minPairs: 500, maxPairs: 999, reward: 25000, description: "500 pairs achievement" },
+        { minPairs: 1000, maxPairs: 1499, reward: 50000, description: "1000 pairs diamond achievement" },
+        { minPairs: 1500, maxPairs: 1999, reward: 75000, description: "1500 pairs platinum achievement" },
+        { minPairs: 2000, maxPairs: 2999, reward: 100000, description: "2000 pairs crown achievement" },
+        { minPairs: 3000, maxPairs: 4999, reward: 150000, description: "3000 pairs royal achievement" },
+        { minPairs: 5000, maxPairs: 9999, reward: 250000, description: "5000 pairs ambassador achievement" }
+      ];
+
+      // Business Volume Based Rewards (₹1 lakh to ₹30 lakh)
+      const volumeRewards = [
+        { minVolume: 100000, maxVolume: 199999, reward: 5000, description: "₹1 lakh business volume" },
+        { minVolume: 200000, maxVolume: 299999, reward: 10000, description: "₹2 lakh business volume" },
+        { minVolume: 300000, maxVolume: 499999, reward: 15000, description: "₹3 lakh business volume" },
+        { minVolume: 500000, maxVolume: 999999, reward: 25000, description: "₹5 lakh business volume" },
+        { minVolume: 1000000, maxVolume: 1999999, reward: 50000, description: "₹10 lakh business volume" },
+        { minVolume: 2000000, maxVolume: 2999999, reward: 100000, description: "₹20 lakh business volume" },
+        { minVolume: 3000000, maxVolume: 9999999, reward: 150000, description: "₹30 lakh business volume" }
+      ];
+
+      // Check pair-based rewards
+      for (const slab of rewardSlabs) {
+        if (pairsCount >= slab.minPairs && pairsCount <= slab.maxPairs) {
+          rewards.push({
+            type: 'pair_achievement',
+            amount: slab.reward,
+            description: slab.description,
+            pairs: pairsCount,
+            achieved: true
+          });
+          totalReward += slab.reward;
+          break;
+        }
+      }
+
+      // Check volume-based rewards
+      for (const slab of volumeRewards) {
+        if (businessVolume >= slab.minVolume && businessVolume <= slab.maxVolume) {
+          rewards.push({
+            type: 'volume_achievement',
+            amount: slab.reward,
+            description: slab.description,
+            volume: businessVolume,
+            achieved: true
+          });
+          totalReward += slab.reward;
+          break;
+        }
+      }
+
+      // Festival Rewards (Monthly Distribution)
+      const today = new Date();
+      const month = today.getMonth() + 1;
+      const festivalRewards = this.getFestivalRewards(month, pairsCount, businessVolume);
+      
+      if (festivalRewards.length > 0) {
+        rewards.push(...festivalRewards);
+        totalReward += festivalRewards.reduce((sum, reward) => sum + reward.amount, 0);
+      }
+
+      return {
+        totalReward,
+        rewards,
+        eligibleForNextLevel: this.getNextRewardLevel(pairsCount, businessVolume)
+      };
+    } catch (error) {
+      console.error('Error calculating rewards income:', error);
+      throw error;
+    }
+  }
+
+  // Get festival rewards based on month and performance
+  static getFestivalRewards(month, pairsCount, businessVolume) {
+    const festivalCalendar = {
+      1: { name: "New Year Bonus", multiplier: 1.2 }, // January
+      2: { name: "Republic Day Special", multiplier: 1.1 }, // February
+      3: { name: "Holi Celebration", multiplier: 1.3 }, // March
+      4: { name: "Spring Festival", multiplier: 1.1 }, // April
+      5: { name: "Summer Boost", multiplier: 1.2 }, // May
+      6: { name: "Monsoon Special", multiplier: 1.1 }, // June
+      7: { name: "Independence Bonus", multiplier: 1.4 }, // July
+      8: { name: "Raksha Bandhan Gift", multiplier: 1.2 }, // August
+      9: { name: "Ganesh Festival", multiplier: 1.3 }, // September
+      10: { name: "Dussehra Victory", multiplier: 1.5 }, // October
+      11: { name: "Diwali Mega Bonus", multiplier: 2.0 }, // November
+      12: { name: "Christmas & Year End", multiplier: 1.8 } // December
+    };
+
+    const festival = festivalCalendar[month];
+    const rewards = [];
+
+    if (festival && pairsCount >= 10) {
+      const baseReward = Math.min(pairsCount * 10, 5000); // Base festival reward
+      const festivalAmount = Math.floor(baseReward * festival.multiplier);
+      
+      rewards.push({
+        type: 'festival_reward',
+        amount: festivalAmount,
+        description: `${festival.name} - ${festival.multiplier}x multiplier`,
+        month: month,
+        achieved: true
+      });
+    }
+
+    return rewards;
+  }
+
+  // Get next reward level information
+  static getNextRewardLevel(currentPairs, currentVolume) {
+    const nextPairMilestone = [50, 100, 200, 300, 400, 500, 1000, 1500, 2000, 3000, 5000]
+      .find(milestone => milestone > currentPairs);
+    
+    const nextVolumeMilestone = [100000, 200000, 300000, 500000, 1000000, 2000000, 3000000]
+      .find(milestone => milestone > currentVolume);
+
+    return {
+      nextPairMilestone,
+      pairsNeeded: nextPairMilestone ? nextPairMilestone - currentPairs : 0,
+      nextVolumeMilestone,
+      volumeNeeded: nextVolumeMilestone ? nextVolumeMilestone - currentVolume : 0
+    };
+  }
+
+  // Enhanced daily reset with proper Vedmurti Plan limits
+  static async resetDailyCycles() {
+    try {
+      const mlmUsersQuery = query(collection(db, 'mlmUsers'));
+      const snapshot = await getDocs(mlmUsersQuery);
+      
+      const batch = writeBatch(db);
+      
+      snapshot.docs.forEach((doc) => {
+        batch.update(doc.ref, {
+          dailyPairs: 0,
+          dailyIncome: 0,
+          lastDailyReset: serverTimestamp()
+        });
+      });
 
       await batch.commit();
+      console.log('Daily cycles reset successfully - Vedmurti Plan');
     } catch (error) {
-      console.error('Error calculating mentorship income:', error);
+      console.error('Error resetting daily cycles:', error);
+      throw error;
+    }
+  }
+
+  // Process member joining income (₹2000 per new member)
+  static async processMemberJoiningIncome(sponsorId, newMemberId, joiningAmount = 1500) {
+    try {
+      return await runTransaction(db, async (transaction) => {
+        // Vedmurti Plan: ₹2000 joining income for sponsor
+        const joiningIncome = 2000;
+        
+        const sponsorRef = doc(db, 'mlmUsers', sponsorId);
+        const sponsorDoc = await transaction.get(sponsorRef);
+        
+        if (!sponsorDoc.exists()) return;
+
+        // Update sponsor's joining income
+        transaction.update(sponsorRef, {
+          joiningIncome: increment(joiningIncome),
+          totalIncome: increment(joiningIncome),
+          currentCycleIncome: increment(joiningIncome),
+          totalJoinings: increment(1)
+        });
+
+        // Update main user balance
+        const mainUserRef = doc(db, 'users', sponsorId);
+        transaction.update(mainUserRef, {
+          affiliateBalance: increment(joiningIncome),
+          totalEarnings: increment(joiningIncome),
+          joiningIncome: increment(joiningIncome)
+        });
+
+        // Create income record
+        const incomeRecord = {
+          userId: sponsorId,
+          type: 'joining_bonus',
+          amount: joiningIncome,
+          fromUserId: newMemberId,
+          description: `Member Joining Bonus: ₹${joiningIncome} for new member`,
+          joiningAmount: joiningAmount,
+          createdAt: serverTimestamp(),
+          status: 'completed',
+          payoutEligible: true,
+          payoutCycle: this.getCurrentPayoutCycle()
+        };
+
+        const incomeRef = doc(collection(db, 'incomeRecords'));
+        transaction.set(incomeRef, incomeRecord);
+
+        return { success: true, amount: joiningIncome };
+      });
+    } catch (error) {
+      console.error('Error processing member joining income:', error);
       throw error;
     }
   }

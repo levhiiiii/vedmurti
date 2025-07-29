@@ -52,7 +52,11 @@ const MLMTreeView = () => {
                     );
                     const userSnapshot = await getDocs(userQuery);
                     
-                    if (userSnapshot.empty) return null;
+                    if (userSnapshot.empty) {
+                        // Log missing downline
+                        console.warn('Downline user not found for referralCode:', referralCode);
+                        return { missingDownline: true, referralCode, level };
+                    }
 
                     const userData = userSnapshot.docs[0].data();
                     
@@ -109,6 +113,17 @@ const MLMTreeView = () => {
                         <FaUserSlash className="text-gray-400 text-2xl" />
                     </div>
                     <span className="text-xs text-gray-500 mt-2">Empty slot</span>
+                </div>
+            );
+        }
+        if (node.missingDownline) {
+            return (
+                <div className="flex flex-col items-center">
+                    <div className="w-20 h-20 rounded-full bg-yellow-100 flex items-center justify-center shadow-sm hover:shadow-md transition-shadow border-2 border-yellow-400">
+                        <FaUserSlash className="text-yellow-500 text-2xl" />
+                    </div>
+                    <span className="text-xs text-yellow-700 mt-2">Missing downline</span>
+                    <span className="text-xs text-yellow-500 font-mono bg-yellow-50 px-2 py-1 rounded mt-1">{node.referralCode}</span>
                 </div>
             );
         }
@@ -244,7 +259,7 @@ const MLMTreeView = () => {
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
-                <h1 className="text-3xl font-bold text-gray-800">MLM Network Tree</h1>
+                <h1 className="text-3xl font-bold text-gray-800">Affilate Network Tree</h1>
                 
                 <div className="flex items-center gap-4">
                     <button

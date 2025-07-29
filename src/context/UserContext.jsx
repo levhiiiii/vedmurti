@@ -124,6 +124,11 @@ export const UserProvider = ({ children }) => {
 
       if (referredBy) {
         await updateReferralCount(db, referredBy);
+        // Recursively set downline slot for the referrer or their downlines
+        const slotResult = await findAvailableDownlineSlot(db, referredBy);
+        if (slotResult) {
+          await updateDoc(slotResult.docRef, { [slotResult.slot]: userReferralCode });
+        }
       }
 
       // Update state and localStorage
@@ -225,6 +230,26 @@ export const UserProvider = ({ children }) => {
       await updateDoc(docRef, {
         referralCount: increment(1),
       });
+    }
+  };
+
+  // Recursively find the first available downline slot in the tree
+  const findAvailableDownlineSlot = async (db, referralCode) => {
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('referralCode', '==', referralCode));
+    const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) return null;
+    const userDoc = querySnapshot.docs[0];
+    const userData = userDoc.data();
+    if (!userData.leftDownLine) {
+      return { docRef: doc(db, 'users', userDoc.id), slot: 'leftDownLine' };
+    } else if (!userData.rightDownLine) {
+      return { docRef: doc(db, 'users', userDoc.id), slot: 'rightDownLine' };
+    } else {
+      // Recursively check left, then right
+      const leftResult = await findAvailableDownlineSlot(db, userData.leftDownLine);
+      if (leftResult) return leftResult;
+      return await findAvailableDownlineSlot(db, userData.rightDownLine);
     }
   };
 

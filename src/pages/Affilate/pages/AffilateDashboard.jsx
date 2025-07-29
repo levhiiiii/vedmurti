@@ -1,4 +1,4 @@
-// Enhanced MLM Affiliate Dashboard
+// Enhanced Affilate Affiliate Dashboard
 import { useEffect, useState } from 'react';
 import { getFirestore, collection, query, where, getDocs, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { app } from '../../../Firebase/firebase';
@@ -24,6 +24,23 @@ import { motion, AnimatePresence } from 'framer-motion';
 import MLMService from '../../../services/mlmService';
 import IncomeService from '../../../services/incomeService';
 import PayoutService from '../../../services/payoutService';
+import RewardsService from '../../../services/rewardsService';
+
+// Helper to recursively fetch all downlines for a user
+const fetchAllDownlines = async (db, referralCode) => {
+  const usersRef = collection(db, 'users');
+  const q = query(usersRef, where('referredBy', '==', referralCode));
+  const querySnapshot = await getDocs(q);
+  let allDownlines = [];
+  for (const docSnap of querySnapshot.docs) {
+    const downline = docSnap.data();
+    allDownlines.push(downline);
+    // Recursively fetch this downline's downlines
+    const subDownlines = await fetchAllDownlines(db, downline.referralCode);
+    allDownlines = allDownlines.concat(subDownlines);
+  }
+  return allDownlines;
+};
 
 export default function AffiliateDashboard({ userId }) {
   // State Management
@@ -34,6 +51,9 @@ export default function AffiliateDashboard({ userId }) {
   const [incomeHistory, setIncomeHistory] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [teamStats, setTeamStats] = useState(null);
+  const [rewardHistory, setRewardHistory] = useState([]);
+  const [rankInfo, setRankInfo] = useState(null);
+  const [dailyLimits, setDailyLimits] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(null);
@@ -42,6 +62,11 @@ export default function AffiliateDashboard({ userId }) {
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const [showRewardModal, setShowRewardModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [sellCount, setSellCount] = useState(0);
+  // Add state for total and direct downlines
+  const [totalDownlines, setTotalDownlines] = useState([]);
+  const [totalDownlineCount, setTotalDownlineCount] = useState(0);
+  const [directDownlineCount, setDirectDownlineCount] = useState(0);
 
   // Comprehensive Data Fetching
   useEffect(() => {
@@ -65,6 +90,19 @@ export default function AffiliateDashboard({ userId }) {
         try {
           const mlmUserData = await MLMService.getUserMLMData(userId);
           setMlmData(mlmUserData);
+          
+          // Calculate daily limits
+          if (mlmUserData) {
+            const limits = {
+              dailyPairs: mlmUserData.dailyPairs || 0,
+              dailyIncome: mlmUserData.dailyIncome || 0,
+              maxDailyPairs: 400,
+              maxDailyIncome: 2000,
+              remainingPairs: Math.max(0, 400 - (mlmUserData.dailyPairs || 0)),
+              remainingIncome: Math.max(0, 2000 - (mlmUserData.dailyIncome || 0))
+            };
+            setDailyLimits(limits);
+          }
         } catch (mlmError) {
           console.log('MLM data not found, user may not be registered in MLM system');
         }
@@ -101,20 +139,46 @@ export default function AffiliateDashboard({ userId }) {
           console.log('Team stats not found');
         }
 
-        // Fetch referrals
+        // Fetch reward history
+        try {
+          const rewards = await RewardsService.getUserRewardHistory(userId, 20);
+          setRewardHistory(rewards);
+        } catch (rewardError) {
+          console.log('Reward history not found');
+        }
+
+        // Fetch rank information
+        try {
+          const rank = await IncomeService.getUserRank(userId);
+          setRankInfo(rank);
+        } catch (rankError) {
+          console.log('Rank info not found');
+        }
+
+        // Fetch referrals (direct downlines)
+        let referralsData = [];
         if (userData.referralCode) {
           const q = query(
             collection(db, 'users'),
             where('referredBy', '==', userData.referralCode)
           );
-          
           const querySnapshot = await getDocs(q);
-          const referralsData = querySnapshot.docs.map(doc => ({
+          referralsData = querySnapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           }));
           setReferrals(referralsData);
+          // Calculate sell count through downlines (placeholder)
+          setSellCount(referralsData.filter(ref => ref.affiliateStatus).length * 2);
         }
+        // Fetch all downlines recursively
+        let totalDownlines = [];
+        if (userData.referralCode) {
+          totalDownlines = await fetchAllDownlines(db, userData.referralCode);
+        }
+        setTotalDownlines(totalDownlines);
+        setTotalDownlineCount(totalDownlines.length);
+        setDirectDownlineCount(referralsData.length);
 
       } catch (err) {
         console.error('Error fetching data:', err);
@@ -171,8 +235,8 @@ export default function AffiliateDashboard({ userId }) {
   const shareReferralLink = async () => {
     try {
       await navigator.share({
-        title: 'Join Vedmurti MLM Network!',
-        text: `Use my referral code ${user.referralCode} to start earning with our MLM system.`,
+        title: 'Join Vedmurti Affilate Network!',
+        text: `Use my referral code ${user.referralCode} to start earning with our Affilate system.`,
         url: `${window.location.origin}/register?ref=${user.referralCode}`
       });
     } catch (err) {
@@ -294,37 +358,13 @@ export default function AffiliateDashboard({ userId }) {
     return daysDiff >= 1;
   };
 
-  // Get rank information
-  const getRankInfo = () => {
-    if (!incomeData) return { rank: 'Starter', level: 1, progress: 0 };
-    
-    const totalIncome = incomeData.totalIncome || 0;
-    const pairsCount = incomeData.pairsCount || 0;
-    
-    if (totalIncome >= 500000 && pairsCount >= 1000) {
-      return { rank: 'Diamond', level: 7, progress: 100, color: 'from-purple-500 to-pink-500' };
-    } else if (totalIncome >= 250000 && pairsCount >= 500) {
-      return { rank: 'Platinum', level: 6, progress: 85, color: 'from-gray-400 to-gray-600' };
-    } else if (totalIncome >= 100000 && pairsCount >= 250) {
-      return { rank: 'Gold', level: 5, progress: 70, color: 'from-yellow-400 to-yellow-600' };
-    } else if (totalIncome >= 50000 && pairsCount >= 100) {
-      return { rank: 'Silver', level: 4, progress: 55, color: 'from-gray-300 to-gray-500' };
-    } else if (totalIncome >= 25000 && pairsCount >= 50) {
-      return { rank: 'Bronze', level: 3, progress: 40, color: 'from-orange-400 to-orange-600' };
-    } else if (totalIncome >= 10000 && pairsCount >= 20) {
-      return { rank: 'Associate', level: 2, progress: 25, color: 'from-blue-400 to-blue-600' };
-    } else {
-      return { rank: 'Starter', level: 1, progress: 10, color: 'from-green-400 to-green-600' };
-    }
-  };
-
   // Loading and Error States
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
         <div className="text-center">
           <LeafLoader />
-          <p className="mt-4 text-gray-600">Loading your MLM dashboard...</p>
+          <p className="mt-4 text-gray-600">Loading your Affilate dashboard...</p>
         </div>
       </div>
     );
@@ -366,17 +406,17 @@ export default function AffiliateDashboard({ userId }) {
 
   const performanceMetrics = getPerformanceMetrics();
   const payoutInfo = getNextPayoutInfo();
-  const rankInfo = getRankInfo();
+  const currentRankInfo = rankInfo || { rank: 'Starter', level: 1, color: 'from-gray-500 to-gray-600' };
 
   return (
     <div className="bg-gradient-to-br from-blue-50 via-white to-purple-50 min-h-screen">
       <div className="max-w-7xl mx-auto p-4 md:p-6">
         {/* Enhanced Header Section */}
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-4 mb-2">
               <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                MLM Dashboard
+                Affilate Dashboard
               </h1>
               <button
                 onClick={refreshData}
@@ -391,15 +431,15 @@ export default function AffiliateDashboard({ userId }) {
                 <MdTimeline className={`text-lg ${refreshing ? 'animate-spin' : ''}`} />
               </button>
             </div>
-            <p className="text-gray-600">Welcome back, {user.name}! Track your MLM performance and earnings.</p>
+            <p className="text-gray-600">Welcome back, {user.name}! Track your Affilate performance and earnings.</p>
           </div>
           
-          <div className="flex items-center gap-4 mt-4 lg:mt-0">
+          <div className="flex items-center gap-4 mt-4 lg:mt-0 flex-wrap">
             {/* Rank Badge */}
-            <div className={`px-4 py-2 rounded-full bg-gradient-to-r ${rankInfo.color} text-white shadow-lg`}>
+            <div className={`px-4 py-2 rounded-full bg-gradient-to-r ${currentRankInfo.color} text-white shadow-lg`}>
               <div className="flex items-center gap-2">
                 <FaCrown className="text-sm" />
-                <span className="font-semibold text-sm">{rankInfo.rank}</span>
+                <span className="font-semibold text-sm">{currentRankInfo.rank}</span>
               </div>
             </div>
             
@@ -426,28 +466,7 @@ export default function AffiliateDashboard({ userId }) {
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex flex-wrap gap-2 mb-8 bg-white p-2 rounded-xl shadow-sm">
-          {[
-            { id: 'overview', label: 'Overview', icon: MdDashboard },
-            { id: 'income', label: 'Income', icon: MdAttachMoney },
-            { id: 'team', label: 'Team', icon: MdPeople },
-            { id: 'analytics', label: 'Analytics', icon: MdShowChart }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
-                activeTab === tab.id
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              <tab.icon className="text-lg" />
-              <span className="font-medium">{tab.label}</span>
-            </button>
-          ))}
-        </div>
+        {/* Removed navigation bar with Overview, Income, Team, Analytics */}
 
         {/* Tab Content */}
         <AnimatePresence mode="wait">
@@ -468,8 +487,8 @@ export default function AffiliateDashboard({ userId }) {
                       Share your referral link
                     </h2>
                     <p className="text-white/90 text-sm mb-2">Invite friends and earn rewards! Share your unique referral link below:</p>
-                    <div className="bg-white rounded-lg px-4 py-2 flex items-center gap-2 shadow-inner">
-                      <span className="truncate text-gray-700 text-sm" title={`${window.location.origin}/register?ref=${user.referralCode}`}>
+                    <div className="bg-white rounded-lg px-4 py-2 flex items-center gap-2 shadow-inner overflow-x-auto w-full max-w-full">
+                      <span className="text-gray-700 text-sm break-all min-w-0 flex-1" style={{wordBreak: 'break-all'}} title={`${window.location.origin}/register?ref=${user.referralCode}`}>
                         {`${window.location.origin}/register?ref=${user.referralCode}`}
                       </span>
                       <button
@@ -494,8 +513,9 @@ export default function AffiliateDashboard({ userId }) {
                   </div>
                 </div>
               </div>
-              {/* Key Metrics Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              
+              {/* Key Metrics Cards - Vedmurti Plan */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -508,12 +528,12 @@ export default function AffiliateDashboard({ userId }) {
                     </div>
                     <div className="text-right">
                       <p className="text-blue-100 text-sm">Total Balance</p>
-                      <p className="text-2xl font-bold">₹{((user.affiliateBalance || 0) + (user.totalEarnings || 0)).toFixed(2)}</p>
+                      <p className="text-2xl font-bold">₹{(user.affiliateBalance || 0).toFixed(2)}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-blue-100">
                     <HiOutlineTrendingUp className="text-sm" />
-                    <span className="text-xs">Available + Earned</span>
+                    <span className="text-xs">Available Balance</span>
                   </div>
                 </motion.div>
 
@@ -549,13 +569,14 @@ export default function AffiliateDashboard({ userId }) {
                       <RiTeamFill className="text-2xl" />
                     </div>
                     <div className="text-right">
-                      <p className="text-purple-100 text-sm">Team Size</p>
-                      <p className="text-2xl font-bold">{referrals.length || 0}</p>
+                      <p className="text-purple-100 text-sm">Network Size</p>
+                      <p className="text-2xl font-bold">{totalDownlineCount}</p>
+                      <p className="text-xs text-purple-200 mt-1">Direct: {directDownlineCount} | Indirect: {totalDownlineCount - directDownlineCount}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-purple-100">
                     <BsPersonCheck className="text-sm" />
-                    <span className="text-xs">Direct Referrals</span>
+                    <span className="text-xs">Total Network</span>
                   </div>
                 </motion.div>
 
@@ -567,50 +588,195 @@ export default function AffiliateDashboard({ userId }) {
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div className="p-3 bg-white/20 rounded-xl">
-                      <BsAward className="text-2xl" />
+                      <FaHandHoldingUsd className="text-2xl" />
                     </div>
                     <div className="text-right">
-                      <p className="text-orange-100 text-sm">Total Pairs</p>
-                      <p className="text-2xl font-bold">{incomeData?.pairsCount || 0}</p>
+                      <p className="text-orange-100 text-sm">Sell Count</p>
+                      <p className="text-2xl font-bold">{sellCount}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-orange-100">
-                    <FaNetworkWired className="text-sm" />
-                    <span className="text-xs">Binary Pairs</span>
+                    <FaChartLine className="text-sm" />
+                    <span className="text-xs">Via Downlines</span>
                   </div>
                 </motion.div>
               </div>
 
-              {/* Next Payout Info */}
+              {/* Vedmurti Plan Income Breakdown */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mb-8">
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-white/20 rounded-xl">
+                      <FaNetworkWired className="text-2xl" />
+                    </div>
+                    <div className="text-right">
+                      <p className="text-emerald-100 text-sm">Promotional Income</p>
+                      <p className="text-2xl font-bold">₹{(incomeData?.promotionalIncome || 0).toFixed(2)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-emerald-100 text-sm">
+                    <span>Pairs: {incomeData?.pairsCount || 0}</span>
+                    <span>₹400/pair</span>
+                  </div>
+                  <div className="mt-2 bg-white/20 rounded-full h-2">
+                    <div 
+                      className="bg-white rounded-full h-2 transition-all duration-300"
+                      style={{ width: `${Math.min((incomeData?.dailyPairs || 0) / 400 * 100, 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-xs text-emerald-100 mt-1">
+                    <span>Daily: {incomeData?.dailyPairs || 0}/400</span>
+                    <span>₹{(incomeData?.dailyIncome || 0).toFixed(0)}/₹2000</span>
+                  </div>
+                </motion.div>
+
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                  className="bg-gradient-to-br from-indigo-500 to-indigo-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-white/20 rounded-xl">
+                      <FaUserTie className="text-2xl" />
+                    </div>
+                    <div className="text-right">
+                      <p className="text-indigo-100 text-sm">Leadership Income</p>
+                      <p className="text-2xl font-bold">₹{(incomeData?.leadershipIncome || 0).toFixed(2)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-indigo-100 text-sm">
+                    <span>Qualified: {incomeData?.qualifiedReferrals || 0}/10</span>
+                    <span className={`px-2 py-1 rounded-full text-xs ${
+                      incomeData?.eligibleForLeadership ? 'bg-green-500' : 'bg-red-500'
+                    }`}>
+                      {incomeData?.eligibleForLeadership ? 'Eligible' : 'Not Eligible'}
+                    </span>
+                  </div>
+                  <div className="mt-2 bg-white/20 rounded-full h-2">
+                    <div 
+                      className="bg-white rounded-full h-2 transition-all duration-300"
+                      style={{ width: `${Math.min((incomeData?.qualifiedReferrals || 0) / 10 * 100, 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="text-xs text-indigo-100 mt-1">
+                    Team Turnover: ₹{(incomeData?.teamTurnover || 0).toLocaleString()}
+                  </div>
+                </motion.div>
+
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.7 }}
+                  className="bg-gradient-to-br from-pink-500 to-pink-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-white/20 rounded-xl">
+                      <FaGift className="text-2xl" />
+                    </div>
+                    <div className="text-right">
+                      <p className="text-pink-100 text-sm">Rewards Income</p>
+                      <p className="text-2xl font-bold">₹{(incomeData?.rewardsIncome || 0).toFixed(2)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-pink-100 text-sm">
+                    <span>Rank: {currentRankInfo.rank}</span>
+                    <span>Level {currentRankInfo.level}</span>
+                  </div>
+                  <div className="mt-2 bg-white/20 rounded-full h-2">
+                    <div 
+                      className="bg-white rounded-full h-2 transition-all duration-300"
+                      style={{ width: `${(currentRankInfo.level / 11) * 100}%` }}
+                    ></div>
+                  </div>
+                  <div className="text-xs text-pink-100 mt-1">
+                    Business Volume: ₹{(incomeData?.businessVolume || 0).toLocaleString()}
+                  </div>
+                </motion.div>
+              </div>
+
+              {/* Vedmurti Plan Payout Info */}
               <motion.div 
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
-                className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg mb-8"
+                transition={{ delay: 0.8 }}
+                className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg mb-8 overflow-x-auto"
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-xl font-semibold mb-2">Next Payout</h3>
-                    <p className="text-indigo-100">Scheduled payout information</p>
+                    <h3 className="text-xl font-semibold mb-2">Next Payout - Vedmurti Plan</h3>
+                    <p className="text-indigo-100">Payouts on 2nd, 12th & 22nd of every month</p>
                   </div>
                   <div className="text-right">
                     <div className="text-3xl font-bold">{payoutInfo.daysUntil}</div>
                     <div className="text-indigo-200 text-sm">Days Left</div>
                   </div>
                 </div>
-                <div className="mt-4 pt-4 border-t border-indigo-400">
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="bg-white/10 rounded-lg p-4">
+                    <h4 className="font-semibold mb-2">Balance Information</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-indigo-100">Available Balance:</span>
+                        <span className="font-semibold">₹{(user.affiliateBalance || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-indigo-100">After 5% Deduction:</span>
+                        <span className="font-semibold">₹{((user.affiliateBalance || 0) * 0.95).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-indigo-100">KYC Status:</span>
+                        <span className={`font-semibold ${incomeData?.kycCompleted ? 'text-green-300' : 'text-red-300'}`}>
+                          {incomeData?.kycCompleted ? 'Completed' : 'Pending'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white/10 rounded-lg p-4">
+                    <h4 className="font-semibold mb-2">Daily Limits (Vedmurti Plan)</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-indigo-100">Daily Pairs:</span>
+                        <span className="font-semibold">{incomeData?.dailyPairs || 0}/400</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-indigo-100">Daily Income:</span>
+                        <span className="font-semibold">₹{(incomeData?.dailyIncome || 0).toFixed(0)}/₹2000</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-indigo-100">Remaining Capacity:</span>
+                        <span className="font-semibold">{incomeData?.availableDailyPairs || 400} pairs</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-indigo-400 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
                   <div className="flex justify-between items-center">
-                    <span className="text-indigo-100">Payout Date</span>
+                    <span className="text-indigo-100">Next Payout Date:</span>
                     <span className="font-semibold">{payoutInfo.nextDate}</span>
                   </div>
                   <div className="flex justify-between items-center mt-2">
-                    <span className="text-indigo-100">Available Balance</span>
-                    <span className="font-semibold">₹{(user.affiliateBalance || 0).toFixed(2)}</span>
+                    <span className="text-indigo-100">Payout Schedule:</span>
+                    <span className="font-semibold">2nd, 12th, 22nd (Monthly)</span>
                   </div>
-                  <div className="flex justify-between items-center mt-2">
-                    <span className="text-indigo-100">After 5% Deduction</span>
-                    <span className="font-semibold">₹{((user.affiliateBalance || 0) * 0.95).toFixed(2)}</span>
-                  </div>
+                  {!incomeData?.kycCompleted && (
+                    <div className="mt-3 p-3 bg-red-500/20 rounded-lg border border-red-400">
+                      <div className="flex items-center gap-2">
+                        <FaExclamationTriangle className="text-red-300" />
+                        <span className="text-red-100 text-sm">
+                          Complete KYC to receive payouts. Your balance will be held until KYC is completed.
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             </motion.div>
@@ -622,7 +788,7 @@ export default function AffiliateDashboard({ userId }) {
           <motion.div 
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-2"
           >
             <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md mx-4 text-center">
               <div className="mb-4">

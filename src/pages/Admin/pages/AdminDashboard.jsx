@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   FaChartLine, 
   FaShoppingCart, 
@@ -8,7 +8,8 @@ import {
   FaSearch,
   FaFilter,
   FaDownload,
-  FaEllipsisV
+  FaEllipsisV,
+  FaUser, FaUserCircle, FaUserSlash, FaExpand, FaCompress
 } from 'react-icons/fa';
 import { Line, Bar, Pie } from 'react-chartjs-2';
 import {
@@ -23,6 +24,9 @@ import {
   Tooltip,
   Legend
 } from 'chart.js';
+import { collection, onSnapshot, query, orderBy, getDocs, where } from 'firebase/firestore';
+import { db } from '../../../Firebase/firebase';
+import AdminNetworkTree from './AdminNetworkTree.jsx';
 
 // Register ChartJS components
 ChartJS.register(
@@ -41,51 +45,52 @@ const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [timeRange, setTimeRange] = useState('monthly');
   const [showFilters, setShowFilters] = useState(false);
+  // Real-time data state
+  const [orders, setOrders] = useState([]);
+  const [paymentRequests, setPaymentRequests] = useState([]);
+  const [networkSearch, setNetworkSearch] = useState('');
+  const [networkSearchType, setNetworkSearchType] = useState('referralCode');
+  const [networkTree, setNetworkTree] = useState(null);
+  const [networkLoading, setNetworkLoading] = useState(false);
+  const [networkError, setNetworkError] = useState(null);
+  const [networkExpanded, setNetworkExpanded] = useState(false);
 
-  // Mock data
-  const dashboardData = {
-    stats: {
-      totalSales: 125430,
-      totalOrders: 842,
-      newCustomers: 156,
-      revenue: 87450
-    },
-    salesTrend: {
-      monthly: [12500, 18500, 22000, 17500, 21000, 24000, 28000],
-      weekly: [4500, 6800, 5200, 7500, 6200, 8900, 9500],
-      daily: [850, 1200, 950, 1800, 1500, 2100, 2400]
-    },
-    revenueSources: {
-      labels: ['Direct Sales', 'Team Commissions', 'Bonuses', 'Product Sales'],
-      data: [58400, 21500, 6250, 1300]
-    },
-    topPerformers: [
-      { id: 1, name: 'Sarah Johnson', level: 'Diamond', sales: 28450, recruits: 24 },
-      { id: 2, name: 'Michael Chen', level: 'Gold', sales: 18720, recruits: 18 },
-      { id: 3, name: 'Emily Rodriguez', level: 'Silver', sales: 12380, recruits: 12 },
-      { id: 4, name: 'David Kim', level: 'Silver', sales: 8450, recruits: 8 },
-      { id: 5, name: 'Jessica Williams', level: 'Diamond', sales: 7920, recruits: 7 }
-    ],
-    recentOrders: [
-      { id: 1001, customer: 'Robert Garcia', date: '2023-07-15', amount: 245, status: 'Completed' },
-      { id: 1002, customer: 'Jennifer Taylor', date: '2023-07-14', amount: 180, status: 'Processing' },
-      { id: 1003, customer: 'Daniel Brown', date: '2023-07-14', amount: 320, status: 'Completed' },
-      { id: 1004, customer: 'Lisa Wilson', date: '2023-07-13', amount: 150, status: 'Shipped' },
-      { id: 1005, customer: 'Thomas Moore', date: '2023-07-12', amount: 275, status: 'Completed' }
-    ]
-  };
-
-  // Chart data
+  // Real-time Firestore listeners
+  useEffect(() => {
+    const ordersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setOrders(ordersData);
+    });
+    const paymentRequestsQuery = query(collection(db, 'paymentRequests'), orderBy('submittedAt', 'desc'));
+    const unsubscribePayments = onSnapshot(paymentRequestsQuery, (snapshot) => {
+      const paymentData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPaymentRequests(paymentData);
+    });
+    return () => {
+      unsubscribeOrders();
+      unsubscribePayments();
+    };
+  }, []);
+  // Analytics calculations
+  const totalSales = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+  const totalOrders = orders.length;
+  const newCustomers = new Set(orders.map(o => o.userId)).size;
+  const revenue = paymentRequests.filter(r => r.status === 'approved').reduce((sum, r) => sum + (r.amount || 0), 0);
+  // Chart data (example: monthly sales)
+  const salesByMonth = Array(12).fill(0);
+  orders.forEach(order => {
+    if (order.createdAt && order.createdAt.toDate) {
+      const month = order.createdAt.toDate().getMonth();
+      salesByMonth[month] += order.totalAmount || 0;
+    }
+  });
   const salesChartData = {
-    labels: timeRange === 'monthly' ? 
-      ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'] :
-      timeRange === 'weekly' ?
-      ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6', 'Week 7'] :
-      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
     datasets: [
       {
         label: 'Sales',
-        data: dashboardData.salesTrend[timeRange],
+        data: salesByMonth,
         borderColor: 'rgba(99, 102, 241, 1)',
         backgroundColor: 'rgba(99, 102, 241, 0.2)',
         tension: 0.3,
@@ -93,28 +98,98 @@ const AdminDashboard = () => {
       }
     ]
   };
-
+  // Revenue sources (example: payment requests vs orders)
   const revenueChartData = {
-    labels: dashboardData.revenueSources.labels,
+    labels: ['Product Orders', 'Affiliate Payments'],
     datasets: [
       {
         label: 'Revenue',
-        data: dashboardData.revenueSources.data,
+        data: [totalSales, revenue],
         backgroundColor: [
           'rgba(99, 102, 241, 0.7)',
-          'rgba(16, 185, 129, 0.7)',
-          'rgba(245, 158, 11, 0.7)',
-          'rgba(239, 68, 68, 0.7)'
+          'rgba(16, 185, 129, 0.7)'
         ],
         borderColor: [
           'rgba(99, 102, 241, 1)',
-          'rgba(16, 185, 129, 1)',
-          'rgba(245, 158, 11, 1)',
-          'rgba(239, 68, 68, 1)'
+          'rgba(16, 185, 129, 1)'
         ],
         borderWidth: 1
       }
     ]
+  };
+
+  // Helper to fetch user by any field
+  const fetchUserByField = async (field, value) => {
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where(field, '==', value));
+    const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) return null;
+    return { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
+  };
+  // Helper to build tree
+  const buildTree = async (referralCode, level = 0, maxLevel = networkExpanded ? 4 : 3) => {
+    if (level >= maxLevel) return null;
+    const user = await fetchUserByField('referralCode', referralCode);
+    if (!user) return null;
+    let leftDownline = null;
+    let rightDownline = null;
+    if (user.leftDownLine) leftDownline = await buildTree(user.leftDownLine, level + 1, maxLevel);
+    if (user.rightDownLine) rightDownline = await buildTree(user.rightDownLine, level + 1, maxLevel);
+    return {
+      ...user,
+      leftDownlineNode: leftDownline,
+      rightDownlineNode: rightDownline,
+      level
+    };
+  };
+  // Handle network search
+  const handleNetworkSearch = async (e) => {
+    e.preventDefault();
+    setNetworkLoading(true);
+    setNetworkError(null);
+    setNetworkTree(null);
+    let user = null;
+    try {
+      if (networkSearchType === 'referralCode') {
+        user = await fetchUserByField('referralCode', networkSearch);
+      } else if (networkSearchType === 'email') {
+        user = await fetchUserByField('email', networkSearch);
+      } else if (networkSearchType === 'userId') {
+        user = await fetchUserByField('userId', networkSearch);
+      }
+      if (!user) {
+        setNetworkError('User not found');
+        setNetworkLoading(false);
+        return;
+      }
+      const tree = await buildTree(user.referralCode);
+      setNetworkTree({ root: user, tree });
+    } catch (err) {
+      setNetworkError('Error loading network tree');
+    } finally {
+      setNetworkLoading(false);
+    }
+  };
+  // Render tree node
+  const renderTreeNode = (node) => {
+    if (!node) return null;
+    return (
+      <div className="flex flex-col items-center">
+        <div className={`w-20 h-20 rounded-full flex items-center justify-center shadow-md ${node.level === 0 ? 'bg-gradient-to-br from-blue-100 to-blue-50 border-2 border-blue-300' : 'bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200'}`}> 
+          {node.level === 0 ? <FaUserCircle className="text-blue-500 text-3xl" /> : <FaUser className="text-gray-600 text-2xl" />}
+        </div>
+        <span className="text-sm font-medium mt-2 text-center max-w-[120px] truncate">{node.name}</span>
+        <span className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-1 rounded mt-1">{node.referralCode}</span>
+        <span className="text-xs text-gray-400">{node.email}</span>
+        {/* Downlines */}
+        {(node.leftDownlineNode || node.rightDownlineNode) && (
+          <div className="flex justify-center space-x-8 mt-6">
+            <div>{renderTreeNode(node.leftDownlineNode)}</div>
+            <div>{renderTreeNode(node.rightDownlineNode)}</div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -140,10 +215,10 @@ const AdminDashboard = () => {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+      <main className="max-w-7xl mx-auto px-2 sm:px-4 py-4 sm:py-6 lg:px-8">
         {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
-          <nav className="flex -mb-px">
+        <div className="border-b border-gray-200 mb-6 overflow-x-auto">
+          <nav className="flex -mb-px flex-wrap gap-2">
             <button
               onClick={() => setActiveTab('overview')}
               className={`mr-8 py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'overview' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
@@ -168,6 +243,12 @@ const AdminDashboard = () => {
             >
               Top Performers
             </button>
+            <button
+              onClick={() => setActiveTab('network')}
+              className={`mr-8 py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'network' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+            >
+              Network
+            </button>
           </nav>
         </div>
 
@@ -175,13 +256,12 @@ const AdminDashboard = () => {
         {activeTab === 'overview' && (
           <div className="space-y-6">
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Total Sales</p>
-                    <h3 className="text-2xl font-bold mt-1">${dashboardData.stats.totalSales.toLocaleString()}</h3>
-                    <p className="text-green-500 text-sm mt-1">+12% from last month</p>
+                    <h3 className="text-2xl font-bold mt-1">₹{totalSales.toLocaleString()}</h3>
                   </div>
                   <div className="bg-indigo-100 p-3 rounded-lg">
                     <FaChartLine className="text-indigo-600 text-xl" />
@@ -192,8 +272,7 @@ const AdminDashboard = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Total Orders</p>
-                    <h3 className="text-2xl font-bold mt-1">{dashboardData.stats.totalOrders.toLocaleString()}</h3>
-                    <p className="text-green-500 text-sm mt-1">+8% from last month</p>
+                    <h3 className="text-2xl font-bold mt-1">{totalOrders.toLocaleString()}</h3>
                   </div>
                   <div className="bg-green-100 p-3 rounded-lg">
                     <FaShoppingCart className="text-green-600 text-xl" />
@@ -204,8 +283,7 @@ const AdminDashboard = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">New Customers</p>
-                    <h3 className="text-2xl font-bold mt-1">{dashboardData.stats.newCustomers.toLocaleString()}</h3>
-                    <p className="text-green-500 text-sm mt-1">+15% from last month</p>
+                    <h3 className="text-2xl font-bold mt-1">{newCustomers.toLocaleString()}</h3>
                   </div>
                   <div className="bg-blue-100 p-3 rounded-lg">
                     <FaUsers className="text-blue-600 text-xl" />
@@ -215,9 +293,8 @@ const AdminDashboard = () => {
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-gray-500">Revenue</p>
-                    <h3 className="text-2xl font-bold mt-1">${dashboardData.stats.revenue.toLocaleString()}</h3>
-                    <p className="text-green-500 text-sm mt-1">+10% from last month</p>
+                    <p className="text-gray-500">Affiliate Revenue</p>
+                    <h3 className="text-2xl font-bold mt-1">₹{revenue.toLocaleString()}</h3>
                   </div>
                   <div className="bg-purple-100 p-3 rounded-lg">
                     <FaMoneyBillWave className="text-purple-600 text-xl" />
@@ -227,9 +304,9 @@ const AdminDashboard = () => {
             </div>
 
             {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex justify-between items-center mb-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <div className="bg-white rounded-lg shadow p-4 md:p-6 overflow-x-auto">
+                <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4 gap-2">
                   <h3 className="font-semibold">Sales Trend</h3>
                   <div className="flex space-x-2">
                     <button
@@ -252,7 +329,7 @@ const AdminDashboard = () => {
                     </button>
                   </div>
                 </div>
-                <div className="h-64">
+                <div className="h-64 min-w-[320px]">
                   <Line 
                     data={salesChartData}
                     options={{
@@ -280,9 +357,9 @@ const AdminDashboard = () => {
                   />
                 </div>
               </div>
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-white rounded-lg shadow p-4 md:p-6 overflow-x-auto">
                 <h3 className="font-semibold mb-4">Revenue Sources</h3>
-                <div className="h-64">
+                <div className="h-64 min-w-[320px]">
                   <Pie 
                     data={revenueChartData}
                     options={{
@@ -300,15 +377,15 @@ const AdminDashboard = () => {
             </div>
 
             {/* Recent Orders */}
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <div className="bg-white rounded-lg shadow overflow-x-auto">
+              <div className="px-4 md:px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
                 <h3 className="font-semibold">Recent Orders</h3>
                 <button className="text-indigo-600 hover:text-indigo-800 text-sm">
                   View All
                 </button>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-[600px] w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
@@ -320,16 +397,16 @@ const AdminDashboard = () => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {dashboardData.recentOrders.map(order => (
+                    {orders.map(order => (
                       <tr key={order.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">#{order.id}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.customer}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.date}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${order.amount}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.userId}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.createdAt ? new Date(order.createdAt.toDate()).toLocaleDateString() : 'N/A'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₹{order.totalAmount}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            order.status === 'Completed' ? 'bg-green-100 text-green-800' :
-                            order.status === 'Processing' ? 'bg-yellow-100 text-yellow-800' :
+                            order.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            order.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
                             'bg-blue-100 text-blue-800'
                           }`}>
                             {order.status}
@@ -349,8 +426,8 @@ const AdminDashboard = () => {
 
         {/* Orders Tab */}
         {activeTab === 'orders' && (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="bg-white rounded-lg shadow overflow-x-auto">
+            <div className="px-4 md:px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
               <h3 className="font-semibold">Order Management</h3>
               <div className="flex space-x-3">
                 <button 
@@ -366,7 +443,7 @@ const AdminDashboard = () => {
             </div>
             
             {showFilters && (
-              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+              <div className="px-4 md:px-6 py-4 border-b border-gray-200 bg-gray-50">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -406,7 +483,7 @@ const AdminDashboard = () => {
             )}
             
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
+              <table className="min-w-[600px] w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
@@ -418,16 +495,16 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {dashboardData.recentOrders.map(order => (
+                  {orders.map(order => (
                     <tr key={order.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">#{order.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.customer}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.date}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${order.amount}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.userId}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.createdAt ? new Date(order.createdAt.toDate()).toLocaleDateString() : 'N/A'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₹{order.totalAmount}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          order.status === 'Completed' ? 'bg-green-100 text-green-800' :
-                          order.status === 'Processing' ? 'bg-yellow-100 text-yellow-800' :
+                          order.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          order.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
                           'bg-blue-100 text-blue-800'
                         }`}>
                           {order.status}
@@ -466,8 +543,8 @@ const AdminDashboard = () => {
         {/* Sales Tab */}
         {activeTab === 'sales' && (
           <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex justify-between items-center mb-4">
+            <div className="bg-white rounded-lg shadow p-4 md:p-6 overflow-x-auto">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4 gap-2">
                 <h3 className="font-semibold">Sales Analytics</h3>
                 <div className="flex space-x-2">
                   <button
@@ -490,7 +567,7 @@ const AdminDashboard = () => {
                   </button>
                 </div>
               </div>
-              <div className="h-96">
+              <div className="h-96 min-w-[320px]">
                 <Bar 
                   data={salesChartData}
                   options={{
@@ -519,10 +596,10 @@ const AdminDashboard = () => {
               </div>
             </div>
             
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white rounded-lg shadow p-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <div className="bg-white rounded-lg shadow p-4 md:p-6 overflow-x-auto">
                 <h3 className="font-semibold mb-4">Revenue Breakdown</h3>
-                <div className="h-64">
+                <div className="h-64 min-w-[320px]">
                   <Pie 
                     data={revenueChartData}
                     options={{
@@ -538,9 +615,9 @@ const AdminDashboard = () => {
                 </div>
               </div>
               
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-white rounded-lg shadow p-4 md:p-6 overflow-x-auto">
                 <h3 className="font-semibold mb-4">Top Products</h3>
-                <div className="space-y-4">
+                <div className="space-y-4 min-w-[320px]">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center">
                       <div className="bg-indigo-100 p-2 rounded-lg mr-3">
@@ -552,7 +629,7 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium">$12,450</p>
+                      <p className="font-medium">₹12,450</p>
                       <p className="text-sm text-green-500">+15%</p>
                     </div>
                   </div>
@@ -568,7 +645,7 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium">$9,870</p>
+                      <p className="font-medium">₹9,870</p>
                       <p className="text-sm text-green-500">+8%</p>
                     </div>
                   </div>
@@ -584,7 +661,7 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium">$7,650</p>
+                      <p className="font-medium">₹7,650</p>
                       <p className="text-sm text-red-500">-3%</p>
                     </div>
                   </div>
@@ -600,7 +677,7 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium">$5,320</p>
+                      <p className="font-medium">₹5,320</p>
                       <p className="text-sm text-green-500">+22%</p>
                     </div>
                   </div>
@@ -612,8 +689,8 @@ const AdminDashboard = () => {
 
         {/* Top Performers Tab */}
         {activeTab === 'performers' && (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="bg-white rounded-lg shadow overflow-x-auto">
+            <div className="px-4 md:px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
               <h3 className="font-semibold">Top Performers</h3>
               <div className="flex space-x-3">
                 <button 
@@ -629,7 +706,7 @@ const AdminDashboard = () => {
             </div>
             
             {showFilters && (
-              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+              <div className="px-4 md:px-6 py-4 border-b border-gray-200 bg-gray-50">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Level</label>
@@ -668,7 +745,7 @@ const AdminDashboard = () => {
             )}
             
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
+              <table className="min-w-[600px] w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
@@ -681,30 +758,26 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {dashboardData.topPerformers.map((performer, index) => (
-                    <tr key={performer.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{index + 1}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{performer.name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          performer.level === 'Diamond' ? 'bg-purple-100 text-purple-800' :
-                          performer.level === 'Gold' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {performer.level}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${performer.sales.toLocaleString()}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{performer.recruits}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${Math.round(performer.sales * 0.1).toLocaleString()}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button className="text-indigo-600 hover:text-indigo-900 mr-3">View</button>
-                        <button className="text-gray-600 hover:text-gray-900">
-                          <FaEllipsisV />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {/* This section needs to be updated to use real data */}
+                  {/* For now, it will show a placeholder or empty */}
+                  <tr>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">1</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">Placeholder</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                        Bronze
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₹0</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">0</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₹0</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button className="text-indigo-600 hover:text-indigo-900 mr-3">View</button>
+                      <button className="text-gray-600 hover:text-gray-900">
+                        <FaEllipsisV />
+                      </button>
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -725,6 +798,11 @@ const AdminDashboard = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Network Tab */}
+        {activeTab === 'network' && (
+          <AdminNetworkTree />
         )}
       </main>
     </div>

@@ -23,7 +23,7 @@ const AffilateSidebar = ({ isSidebarOpen, toggleSidebar, isMobile, activeItem, s
     { name: 'Network', icon: FaNetworkWired, path: '/affilate-dashboard/tree' },
     { name: 'Downlines', icon: FaNetworkWired, path: '/affilate-dashboard/mynetwork' },
     { name: 'Tree', icon: FaTree, path: '/affilate-dashboard/network' },
-    { name: 'Payments', icon: FaMoneyBill, path: '/affilate-dashboard/payment' },
+    // { name: 'Payments', icon: FaMoneyBill, path: '/affilate-dashboard/payment' },
     { name: 'KYC', icon: FaAward, path: '/affilate-dashboard/kyc' },
     // { name: 'Profile', icon: FaUser, path: '/affilate-dashboard/profile' },
   ];

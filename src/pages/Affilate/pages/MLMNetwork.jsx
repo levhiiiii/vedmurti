@@ -6,7 +6,7 @@ import { FaEdit, FaSave, FaTimes, FaUserPlus, FaUserSlash, FaSearch } from 'reac
 import { PulseLoader } from 'react-spinners';
 import LeafLoader from '../../../components/Loader'
 
-const MLMNetwork = () => {
+const AffilateNetwork = () => {
     const [users, setUsers] = useState([]);
     const [filteredUsers, setFilteredUsers] = useState([]);
     const [currentUserData, setCurrentUserData] = useState(null);
@@ -369,4 +369,4 @@ const MLMNetwork = () => {
     );
 };
 
-export default MLMNetwork;
+export default AffilateNetwork;

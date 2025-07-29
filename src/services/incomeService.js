@@ -18,6 +18,7 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import { app } from '../Firebase/firebase';
+import RewardsService from './rewardsService';
 
 const db = getFirestore(app);
 
@@ -121,21 +122,32 @@ export class IncomeService {
     }
   }
 
-  // Get user's income summary
+  // Get user's income summary - Enhanced for Vedmurti Plan
   static async getUserIncomeSummary(userId) {
     try {
       const mlmDoc = await getDoc(doc(db, 'mlmUsers', userId));
       if (!mlmDoc.exists()) {
         return {
           promotionalIncome: 0,
-          mentorshipIncome: 0,
-          performanceRewards: 0,
+          leadershipIncome: 0,
+          rewardsIncome: 0,
+          joiningIncome: 0,
           totalIncome: 0,
           todayIncome: 0,
           monthlyIncome: 0,
           pairsCount: 0,
-          dailyCycles: 0,
-          availableCycles: 2
+          dailyPairs: 0,
+          dailyIncome: 0,
+          availableDailyPairs: 400,
+          availableDailyIncome: 2000,
+          totalLeftCount: 0,
+          totalRightCount: 0,
+          level: 0,
+          mlmId: null,
+          currentRank: 'Starter',
+          teamTurnover: 0,
+          qualifiedReferrals: 0,
+          eligibleForLeadership: false
         };
       }
 
@@ -151,7 +163,7 @@ export class IncomeService {
         where('createdAt', '>=', todayStart)
       );
       const todayIncomeSnapshot = await getDocs(todayIncomeQuery);
-      const todayIncome = todayIncomeSnapshot.docs.reduce((sum, doc) => sum + doc.data().amount, 0);
+      const todayIncome = todayIncomeSnapshot.docs.reduce((sum, doc) => sum + (doc.data().amount || 0), 0);
 
       // Calculate monthly income
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -161,32 +173,82 @@ export class IncomeService {
         where('createdAt', '>=', monthStart)
       );
       const monthlyIncomeSnapshot = await getDocs(monthlyIncomeQuery);
-      const monthlyIncome = monthlyIncomeSnapshot.docs.reduce((sum, doc) => sum + doc.data().amount, 0);
+      const monthlyIncome = monthlyIncomeSnapshot.docs.reduce((sum, doc) => sum + (doc.data().amount || 0), 0);
 
-      // Check if daily cycles need reset
-      const lastReset = mlmData.lastCycleReset?.toDate() || new Date(0);
+      // Check if daily reset is needed (Vedmurti Plan - daily limits)
+      const lastReset = mlmData.lastDailyReset?.toDate() || new Date(0);
       const hoursDiff = (today - lastReset) / (1000 * 60 * 60);
-      const dailyCycles = hoursDiff >= 12 ? 0 : (mlmData.dailyCycles || 0);
+      const shouldReset = hoursDiff >= 24;
+      
+      const dailyPairs = shouldReset ? 0 : (mlmData.dailyPairs || 0);
+      const dailyIncome = shouldReset ? 0 : (mlmData.dailyIncome || 0);
+
+      // Vedmurti Plan daily limits
+      const maxDailyPairs = 400;
+      const maxDailyIncome = 2000;
 
       return {
+        // Vedmurti Plan Income Types
         promotionalIncome: mlmData.promotionalIncome || 0,
-        mentorshipIncome: mlmData.mentorshipIncome || 0,
-        performanceRewards: mlmData.performanceRewards || 0,
+        leadershipIncome: mlmData.leadershipIncome || 0,
+        rewardsIncome: mlmData.rewardsIncome || 0,
+        joiningIncome: mlmData.joiningIncome || 0,
         totalIncome: mlmData.totalIncome || 0,
+        
+        // Time-based Income
         todayIncome,
         monthlyIncome,
+        
+        // Pair Information
         pairsCount: mlmData.pairsCount || 0,
-        dailyCycles,
-        availableCycles: Math.max(0, 2 - dailyCycles),
+        dailyPairs,
+        dailyIncome,
+        availableDailyPairs: Math.max(0, maxDailyPairs - dailyPairs),
+        availableDailyIncome: Math.max(0, maxDailyIncome - dailyIncome),
+        
+        // Network Information
         totalLeftCount: mlmData.totalLeftCount || 0,
         totalRightCount: mlmData.totalRightCount || 0,
         level: mlmData.level || 0,
-        mlmId: mlmData.mlmId
+        mlmId: mlmData.mlmId,
+        
+        // Rank and Performance
+        currentRank: mlmData.currentRank || 'Starter',
+        rankLevel: mlmData.rankLevel || 1,
+        teamTurnover: mlmData.teamTurnover || 0,
+        leftTeamTurnover: mlmData.leftTeamTurnover || 0,
+        rightTeamTurnover: mlmData.rightTeamTurnover || 0,
+        
+        // Leadership Eligibility
+        qualifiedReferrals: mlmData.qualifiedReferrals || 0,
+        eligibleForLeadership: mlmData.eligibleForLeadership || false,
+        
+        // Additional Metrics
+        businessVolume: (mlmData.leftTeamTurnover || 0) + (mlmData.rightTeamTurnover || 0),
+        balanceRatio: this.calculateBalanceRatio(mlmData.totalLeftCount || 0, mlmData.totalRightCount || 0),
+        
+        // Payout Information
+        currentCycleIncome: mlmData.currentCycleIncome || 0,
+        pendingPayout: mlmData.pendingPayout || 0,
+        lastPayoutDate: mlmData.lastPayoutDate,
+        
+        // System Status
+        isActive: mlmData.isActive !== false,
+        kycCompleted: mlmData.kycCompleted || false,
+        joinDate: mlmData.joinDate
       };
     } catch (error) {
       console.error('Error getting income summary:', error);
       throw error;
     }
+  }
+
+  // Calculate balance ratio for binary tree
+  static calculateBalanceRatio(leftCount, rightCount) {
+    if (leftCount === 0 && rightCount === 0) return 1;
+    const total = leftCount + rightCount;
+    const smaller = Math.min(leftCount, rightCount);
+    return total > 0 ? (smaller * 2) / total : 0;
   }
 
   // Get detailed income history
@@ -232,11 +294,13 @@ export class IncomeService {
       const weeklyData = new Array(7).fill(0);
       const dailyData = new Array(30).fill(0);
       
-      // Income breakdown by type
+      // Income breakdown by type - Vedmurti Plan
       const incomeBreakdown = {
         promotional: 0,
-        mentorship: 0,
-        performance_reward: 0
+        leadership: 0,
+        reward: 0,
+        joining_bonus: 0,
+        festival_reward: 0
       };
 
       // Process income history
@@ -245,27 +309,33 @@ export class IncomeService {
         const incomeYear = incomeDate.getFullYear();
         const incomeMonth = incomeDate.getMonth();
         const incomeDay = incomeDate.getDate();
+        const amount = income.amount || 0;
         
         // Monthly data (current year)
         if (incomeYear === currentYear) {
-          monthlyData[incomeMonth] += income.amount;
+          monthlyData[incomeMonth] += amount;
         }
         
         // Weekly data (last 7 weeks)
         const weeksDiff = Math.floor((now - incomeDate) / (7 * 24 * 60 * 60 * 1000));
         if (weeksDiff >= 0 && weeksDiff < 7) {
-          weeklyData[6 - weeksDiff] += income.amount;
+          weeklyData[6 - weeksDiff] += amount;
         }
         
         // Daily data (last 30 days)
         const daysDiff = Math.floor((now - incomeDate) / (24 * 60 * 60 * 1000));
         if (daysDiff >= 0 && daysDiff < 30) {
-          dailyData[29 - daysDiff] += income.amount;
+          dailyData[29 - daysDiff] += amount;
         }
         
-        // Income breakdown
-        if (incomeBreakdown.hasOwnProperty(income.type)) {
-          incomeBreakdown[income.type] += income.amount;
+        // Income breakdown - Vedmurti Plan types
+        const incomeType = income.type || 'other';
+        if (incomeBreakdown.hasOwnProperty(incomeType)) {
+          incomeBreakdown[incomeType] += amount;
+        } else if (incomeType === 'performance_reward') {
+          incomeBreakdown.reward += amount;
+        } else if (incomeType === 'mentorship') {
+          incomeBreakdown.leadership += amount;
         }
       });
 
@@ -284,8 +354,10 @@ export class IncomeService {
         dailyData: new Array(30).fill(0),
         incomeBreakdown: {
           promotional: 0,
-          mentorship: 0,
-          performance_reward: 0
+          leadership: 0,
+          reward: 0,
+          joining_bonus: 0,
+          festival_reward: 0
         },
         totalTransactions: 0
       };
@@ -349,7 +421,7 @@ export class IncomeService {
     }
   }
 
-  // Get rank based on team performance
+  // Get rank based on team performance - Vedmurti Plan
   static async getUserRank(userId) {
     try {
       const incomeSummary = await this.getUserIncomeSummary(userId);
@@ -357,27 +429,116 @@ export class IncomeService {
       
       const totalIncome = incomeSummary.totalIncome;
       const pairsCount = incomeSummary.pairsCount;
+      const businessVolume = incomeSummary.businessVolume;
       const teamSize = teamVolume.teamSize;
 
-      // Define rank criteria
-      if (totalIncome >= 500000 && pairsCount >= 1000 && teamSize >= 500) {
-        return { rank: 'Diamond', level: 7, benefits: ['50% bonus', 'Car fund', 'International trips'] };
-      } else if (totalIncome >= 250000 && pairsCount >= 500 && teamSize >= 250) {
-        return { rank: 'Platinum', level: 6, benefits: ['40% bonus', 'House fund'] };
-      } else if (totalIncome >= 100000 && pairsCount >= 250 && teamSize >= 100) {
-        return { rank: 'Gold', level: 5, benefits: ['30% bonus', 'Bike fund'] };
-      } else if (totalIncome >= 50000 && pairsCount >= 100 && teamSize >= 50) {
-        return { rank: 'Silver', level: 4, benefits: ['25% bonus'] };
-      } else if (totalIncome >= 25000 && pairsCount >= 50 && teamSize >= 25) {
-        return { rank: 'Bronze', level: 3, benefits: ['20% bonus'] };
-      } else if (totalIncome >= 10000 && pairsCount >= 20 && teamSize >= 10) {
-        return { rank: 'Associate', level: 2, benefits: ['15% bonus'] };
+      // Vedmurti Plan Rank Criteria
+      if (pairsCount >= 5000 && businessVolume >= 3000000 && totalIncome >= 1000000) {
+        return { 
+          rank: 'Ambassador', 
+          level: 11, 
+          color: 'from-purple-600 to-pink-600',
+          benefits: ['₹250,000 reward', 'International trips', 'Car fund', 'House fund', 'Leadership bonus 50%'],
+          nextTarget: null
+        };
+      } else if (pairsCount >= 3000 && businessVolume >= 2000000 && totalIncome >= 750000) {
+        return { 
+          rank: 'Royal', 
+          level: 10, 
+          color: 'from-yellow-500 to-orange-500',
+          benefits: ['₹150,000 reward', 'Luxury trips', 'Bike fund', 'Leadership bonus 40%'],
+          nextTarget: { pairs: 5000, volume: 3000000, income: 1000000 }
+        };
+      } else if (pairsCount >= 2000 && businessVolume >= 1500000 && totalIncome >= 500000) {
+        return { 
+          rank: 'Crown', 
+          level: 9, 
+          color: 'from-purple-500 to-purple-600',
+          benefits: ['₹100,000 reward', 'International recognition', 'Leadership bonus 35%'],
+          nextTarget: { pairs: 3000, volume: 2000000, income: 750000 }
+        };
+      } else if (pairsCount >= 1500 && businessVolume >= 1000000 && totalIncome >= 375000) {
+        return { 
+          rank: 'Platinum', 
+          level: 8, 
+          color: 'from-gray-400 to-gray-600',
+          benefits: ['₹75,000 reward', 'Premium recognition', 'Leadership bonus 30%'],
+          nextTarget: { pairs: 2000, volume: 1500000, income: 500000 }
+        };
+      } else if (pairsCount >= 1000 && businessVolume >= 500000 && totalIncome >= 250000) {
+        return { 
+          rank: 'Diamond', 
+          level: 7, 
+          color: 'from-blue-400 to-blue-600',
+          benefits: ['₹50,000 reward', 'Diamond club membership', 'Leadership bonus 25%'],
+          nextTarget: { pairs: 1500, volume: 1000000, income: 375000 }
+        };
+      } else if (pairsCount >= 500 && businessVolume >= 300000 && totalIncome >= 125000) {
+        return { 
+          rank: 'Champion', 
+          level: 6, 
+          color: 'from-green-500 to-green-600',
+          benefits: ['₹25,000 reward', 'Champion recognition', 'Leadership bonus 20%'],
+          nextTarget: { pairs: 1000, volume: 500000, income: 250000 }
+        };
+      } else if (pairsCount >= 400 && businessVolume >= 200000 && totalIncome >= 100000) {
+        return { 
+          rank: 'Master', 
+          level: 5, 
+          color: 'from-orange-500 to-orange-600',
+          benefits: ['₹12,500 reward', 'Master status', 'Leadership bonus 18%'],
+          nextTarget: { pairs: 500, volume: 300000, income: 125000 }
+        };
+      } else if (pairsCount >= 300 && businessVolume >= 150000 && totalIncome >= 75000) {
+        return { 
+          rank: 'Leader', 
+          level: 4, 
+          color: 'from-red-500 to-red-600',
+          benefits: ['₹10,000 reward', 'Leadership recognition', 'Leadership bonus 15%'],
+          nextTarget: { pairs: 400, volume: 200000, income: 100000 }
+        };
+      } else if (pairsCount >= 200 && businessVolume >= 100000 && totalIncome >= 50000) {
+        return { 
+          rank: 'Expert', 
+          level: 3, 
+          color: 'from-indigo-500 to-indigo-600',
+          benefits: ['₹7,500 reward', 'Expert status', 'Leadership bonus 12%'],
+          nextTarget: { pairs: 300, volume: 150000, income: 75000 }
+        };
+      } else if (pairsCount >= 100 && businessVolume >= 50000 && totalIncome >= 25000) {
+        return { 
+          rank: 'Professional', 
+          level: 2, 
+          color: 'from-teal-500 to-teal-600',
+          benefits: ['₹5,000 reward', 'Professional status', 'Leadership bonus 10%'],
+          nextTarget: { pairs: 200, volume: 100000, income: 50000 }
+        };
+      } else if (pairsCount >= 50 && businessVolume >= 25000 && totalIncome >= 12500) {
+        return { 
+          rank: 'Associate', 
+          level: 1, 
+          color: 'from-blue-500 to-blue-600',
+          benefits: ['₹2,500 reward', 'Associate status', 'Leadership bonus 8%'],
+          nextTarget: { pairs: 100, volume: 50000, income: 25000 }
+        };
       } else {
-        return { rank: 'Starter', level: 1, benefits: ['10% bonus'] };
+        return { 
+          rank: 'Starter', 
+          level: 0, 
+          color: 'from-gray-500 to-gray-600',
+          benefits: ['Basic benefits', 'Training access'],
+          nextTarget: { pairs: 50, volume: 25000, income: 12500 }
+        };
       }
     } catch (error) {
       console.error('Error getting user rank:', error);
-      return { rank: 'Starter', level: 1, benefits: ['10% bonus'] };
+      return { 
+        rank: 'Starter', 
+        level: 0, 
+        color: 'from-gray-500 to-gray-600',
+        benefits: ['Basic benefits'], 
+        nextTarget: { pairs: 50, volume: 25000, income: 12500 }
+      };
     }
   }
 

@@ -40,6 +40,7 @@ import { WishlistProvider } from "./context/WishlistContext.jsx"
 import Tree from './pages/Affilate/pages/Tree.jsx'
 import MyNetwork from "./pages/Affilate/pages/MyNetwork.jsx"
 import ProductDetails from "./pages/E-Commerce/ProductDetails.jsx"
+import AdminNetworkTree from "./pages/Admin/pages/AdminNetworkTree.jsx"
 
 const App = () => {
 
@@ -110,7 +111,7 @@ const App = () => {
             <Route index element={<AdminDashboard />} />
             <Route path="payment-requests" element={<PaymentRequests />} />
             <Route path="payouts" element={<PayoutPage />} />
-            <Route path="tree" element={<MLMNetwork />} />
+            <Route path="tree" element={<AdminNetworkTree />} />
             <Route path="profile" element={<AffilateProfile />} />
             <Route path="add-product" element={<ProductForm />} />
           </Route>
