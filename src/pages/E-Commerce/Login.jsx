@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { FcGoogle } from 'react-icons/fc';
-import { FaLeaf } from 'react-icons/fa';
+import { FaLeaf, FaTimes, FaEnvelope, FaCheckCircle } from 'react-icons/fa';
 import { FiMail, FiLock, FiEye, FiEyeOff, FiPhone } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { 
   getAuth, 
   signInWithEmailAndPassword,
   signInWithPhoneNumber,
-  RecaptchaVerifier
+  RecaptchaVerifier,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { useUser } from '../../context/UserContext';
 
@@ -23,6 +24,11 @@ const LoginPage = () => {
   const [otpSent, setOtpSent] = useState(false);
   const [confirmationResult, setConfirmationResult] = useState(null);
   const [activeTab, setActiveTab] = useState('email'); // 'email' or 'phone'
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const [forgotPasswordError, setForgotPasswordError] = useState(null);
+  const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
   const navigate = useNavigate();
   const auth = getAuth();
   const { currentUser } = useUser();
@@ -31,6 +37,44 @@ const LoginPage = () => {
   if (currentUser) {
     navigate('/');
   }
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setForgotPasswordLoading(true);
+    setForgotPasswordError(null);
+
+    try {
+      await sendPasswordResetEmail(auth, forgotPasswordEmail);
+      setForgotPasswordSuccess(true);
+    } catch (err) {
+      console.error('Password reset error:', err);
+      setForgotPasswordError(getForgotPasswordErrorMessage(err.code));
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
+
+  const getForgotPasswordErrorMessage = (code) => {
+    switch (code) {
+      case 'auth/invalid-email':
+        return 'Invalid email address';
+      case 'auth/user-not-found':
+        return 'No account found with this email address';
+      case 'auth/too-many-requests':
+        return 'Too many attempts. Please try again later.';
+      case 'auth/network-request-failed':
+        return 'Network error. Please check your connection.';
+      default:
+        return 'Failed to send reset email. Please try again.';
+    }
+  };
+
+  const handleCloseForgotPassword = () => {
+    setForgotPasswordEmail('');
+    setForgotPasswordError(null);
+    setForgotPasswordSuccess(false);
+    setShowForgotPasswordModal(false);
+  };
 
   const handleEmailSubmit = async (e) => {
     e.preventDefault();
@@ -234,9 +278,13 @@ const LoginPage = () => {
                 </div>
 
                 <div className="text-sm">
-                  <a href="/forgot-password" className="font-medium text-green-600 hover:text-green-500">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPasswordModal(true)}
+                    className="font-medium text-green-600 hover:text-green-500"
+                  >
                     Forgot password?
-                  </a>
+                  </button>
                 </div>
               </div>
 
@@ -382,6 +430,102 @@ const LoginPage = () => {
       <div className="mt-8 text-center text-xs text-gray-500">
         <p>By signing in, you agree to our Terms of Service and Privacy Policy</p>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgotPasswordModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b">
+              <h2 className="text-xl font-semibold text-gray-900">
+                Reset Password
+              </h2>
+              <button
+                onClick={handleCloseForgotPassword}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <FaTimes className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              {!forgotPasswordSuccess ? (
+                <>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Enter your email address and we'll send you a link to reset your password.
+                  </p>
+
+                  {forgotPasswordError && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                      <p className="text-sm text-red-800">{forgotPasswordError}</p>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleForgotPassword}>
+                    <div className="mb-4">
+                      <label htmlFor="forgot-email" className="block text-sm font-medium text-gray-700 mb-2">
+                        Email address
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <FaEnvelope className="h-5 w-5 text-gray-400" />
+                        </div>
+                        <input
+                          id="forgot-email"
+                          name="email"
+                          type="email"
+                          autoComplete="email"
+                          required
+                          value={forgotPasswordEmail}
+                          onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                          className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                          placeholder="Enter your email address"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={handleCloseForgotPassword}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={forgotPasswordLoading || !forgotPasswordEmail.trim()}
+                        className="flex-1 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {forgotPasswordLoading ? 'Sending...' : 'Send Reset Link'}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              ) : (
+                <div className="text-center">
+                  <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
+                    <FaCheckCircle className="h-6 w-6 text-green-600" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    Check your email
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-6">
+                    We've sent a password reset link to <strong>{forgotPasswordEmail}</strong>
+                  </p>
+                  <button
+                    onClick={handleCloseForgotPassword}
+                    className="w-full px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

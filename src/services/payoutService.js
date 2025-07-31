@@ -1,572 +1,481 @@
-import { 
-  getFirestore, 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  getDocs, 
-  addDoc, 
-  onSnapshot,
-  serverTimestamp,
-  increment,
-  writeBatch,
-  runTransaction
-} from 'firebase/firestore';
+import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { app } from '../Firebase/firebase';
 
-const db = getFirestore(app);
-
-export class PayoutService {
-  
-  // Process scheduled payouts (2nd, 12th, 22nd of each month) - Vedmurti Plan
-  static async processScheduledPayouts() {
-    try {
-      const today = new Date();
-      const dayOfMonth = today.getDate();
-      
-      // Check if today is a payout day - Vedmurti Plan Schedule
-      if (![2, 12, 22].includes(dayOfMonth)) {
-        console.log('Not a payout day - Vedmurti Plan schedule: 2nd, 12th, 22nd');
-        return;
-      }
-
-      console.log(`Processing payouts for ${today.toDateString()}`);
-      
-      // Get all users with pending earnings
-      const usersQuery = query(
-        collection(db, 'users'),
-        where('affiliateBalance', '>', 0)
-      );
-      
-      const usersSnapshot = await getDocs(usersQuery);
-      const batch = writeBatch(db);
-      let totalPayouts = 0;
-      let totalAmount = 0;
-
-      for (const userDoc of usersSnapshot.docs) {
-        const userId = userDoc.id;
-        const userData = userDoc.data();
-        const pendingAmount = userData.affiliateBalance || 0;
-        
-        // Check KYC completion - Vedmurti Plan requirement
-        const mlmUserDoc = await getDoc(doc(db, 'mlmUsers', userId));
-        const kycCompleted = mlmUserDoc.exists() ? mlmUserDoc.data().kycCompleted : false;
-        
-        if (pendingAmount >= 100) { // Minimum payout threshold
-          // Hold payout if KYC not completed
-          if (!kycCompleted) {
-            // Create held payout record
-            const heldPayoutData = {
-              userId,
-              amount: pendingAmount,
-              status: 'held_kyc_pending',
-              reason: 'KYC verification required',
-              payoutDate: serverTimestamp(),
-              heldDate: serverTimestamp(),
-              payoutCycle: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`,
-              createdAt: serverTimestamp()
-            };
-
-            const heldPayoutRef = doc(collection(db, 'heldPayouts'));
-            batch.set(heldPayoutRef, heldPayoutData);
-            
-            continue; // Skip this user for now
-          }
-          
-          // Apply 5% deduction
-          const deductionAmount = pendingAmount * 0.05;
-          const payoutAmount = pendingAmount - deductionAmount;
-          
-          // Create payout record
-          const payoutData = {
-            userId,
-            amount: payoutAmount,
-            originalAmount: pendingAmount,
-            deductionAmount,
-            deductionPercentage: 5,
-            status: 'pending',
-            payoutDate: serverTimestamp(),
-            processedDate: null,
-            payoutMethod: 'bank_transfer',
-            payoutCycle: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`,
-            createdAt: serverTimestamp()
-          };
-
-          const payoutRef = doc(collection(db, 'payouts'));
-          batch.set(payoutRef, payoutData);
-
-          // Update user balance
-          batch.update(userDoc.ref, {
-            affiliateBalance: 0,
-            pendingPayout: payoutAmount,
-            lastPayoutDate: serverTimestamp(),
-            totalPayoutsReceived: increment(payoutAmount)
-          });
-
-          // Create transaction record
-          const transactionData = {
-            userId,
-            type: 'payout',
-            amount: payoutAmount,
-            status: 'pending',
-            description: `Scheduled payout with 5% deduction (₹${deductionAmount.toFixed(2)})`,
-            payoutId: payoutRef.id,
-            createdAt: serverTimestamp()
-          };
-
-          const transactionRef = doc(collection(db, 'payments'));
-          batch.set(transactionRef, transactionData);
-
-          totalPayouts++;
-          totalAmount += payoutAmount;
-        }
-      }
-
-      await batch.commit();
-
-      // Create payout summary
-      const payoutSummary = {
-        date: serverTimestamp(),
-        totalPayouts,
-        totalAmount,
-        totalDeductions: totalAmount * 0.05 / 0.95, // Calculate original deductions
-        payoutCycle: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`,
-        status: 'completed'
-      };
-
-      await addDoc(collection(db, 'payoutSummaries'), payoutSummary);
-
-      console.log(`Processed ${totalPayouts} payouts totaling ₹${totalAmount.toFixed(2)}`);
-      return { totalPayouts, totalAmount };
-    } catch (error) {
-      console.error('Error processing scheduled payouts:', error);
-      throw error;
-    }
-  }
-
-  // Get user's payout history
-  static async getUserPayoutHistory(userId, limitCount = 50) {
-    try {
-      const payoutsQuery = query(
-        collection(db, 'payouts'),
-        where('userId', '==', userId),
-        orderBy('payoutDate', 'desc'),
-        limit(limitCount)
-      );
-
-      const payoutsSnapshot = await getDocs(payoutsQuery);
-      const payoutHistory = [];
-
-      payoutsSnapshot.docs.forEach((doc) => {
-        const data = doc.data();
-        payoutHistory.push({
-          id: doc.id,
-          ...data,
-          payoutDate: data.payoutDate?.toDate() || new Date(),
-          processedDate: data.processedDate?.toDate() || null
-        });
-      });
-
-      return payoutHistory;
-    } catch (error) {
-      console.error('Error getting payout history:', error);
-      return [];
-    }
-  }
-
-  // Approve payout (admin function)
-  static async approvePayout(payoutId, adminId, notes = '') {
-    try {
-      return await runTransaction(db, async (transaction) => {
-        const payoutRef = doc(db, 'payouts', payoutId);
-        const payoutDoc = await transaction.get(payoutRef);
-        
-        if (!payoutDoc.exists()) {
-          throw new Error('Payout not found');
-        }
-
-        const payoutData = payoutDoc.data();
-        
-        if (payoutData.status !== 'pending') {
-          throw new Error('Payout is not in pending status');
-        }
-
-        // Update payout status
-        transaction.update(payoutRef, {
-          status: 'approved',
-          processedDate: serverTimestamp(),
-          approvedBy: adminId,
-          adminNotes: notes
-        });
-
-        // Update user's payout status
-        const userRef = doc(db, 'users', payoutData.userId);
-        transaction.update(userRef, {
-          pendingPayout: 0,
-          lastApprovedPayout: serverTimestamp()
-        });
-
-        // Update transaction status
-        const transactionQuery = query(
-          collection(db, 'payments'),
-          where('payoutId', '==', payoutId)
-        );
-        const transactionSnapshot = await getDocs(transactionQuery);
-        
-        transactionSnapshot.docs.forEach((transactionDoc) => {
-          transaction.update(transactionDoc.ref, {
-            status: 'approved',
-            processedDate: serverTimestamp()
-          });
-        });
-
-        return { success: true, payoutId, amount: payoutData.amount };
-      });
-    } catch (error) {
-      console.error('Error approving payout:', error);
-      throw error;
-    }
-  }
-
-  // Reject payout (admin function)
-  static async rejectPayout(payoutId, adminId, reason) {
-    try {
-      return await runTransaction(db, async (transaction) => {
-        const payoutRef = doc(db, 'payouts', payoutId);
-        const payoutDoc = await transaction.get(payoutRef);
-        
-        if (!payoutDoc.exists()) {
-          throw new Error('Payout not found');
-        }
-
-        const payoutData = payoutDoc.data();
-        
-        if (payoutData.status !== 'pending') {
-          throw new Error('Payout is not in pending status');
-        }
-
-        // Update payout status
-        transaction.update(payoutRef, {
-          status: 'rejected',
-          processedDate: serverTimestamp(),
-          rejectedBy: adminId,
-          rejectionReason: reason
-        });
-
-        // Restore user's balance
-        const userRef = doc(db, 'users', payoutData.userId);
-        transaction.update(userRef, {
-          affiliateBalance: payoutData.originalAmount,
-          pendingPayout: 0
-        });
-
-        // Update transaction status
-        const transactionQuery = query(
-          collection(db, 'payments'),
-          where('payoutId', '==', payoutId)
-        );
-        const transactionSnapshot = await getDocs(transactionQuery);
-        
-        transactionSnapshot.docs.forEach((transactionDoc) => {
-          transaction.update(transactionDoc.ref, {
-            status: 'rejected',
-            processedDate: serverTimestamp()
-          });
-        });
-
-        return { success: true, payoutId, restoredAmount: payoutData.originalAmount };
-      });
-    } catch (error) {
-      console.error('Error rejecting payout:', error);
-      throw error;
-    }
-  }
-
-  // Get pending payouts for admin
-  static async getPendingPayouts(limitCount = 100) {
-    try {
-      const payoutsQuery = query(
-        collection(db, 'payouts'),
-        where('status', '==', 'pending'),
-        orderBy('payoutDate', 'desc'),
-        limit(limitCount)
-      );
-
-      const payoutsSnapshot = await getDocs(payoutsQuery);
-      const pendingPayouts = [];
-
-      for (const doc of payoutsSnapshot.docs) {
-        const payoutData = doc.data();
-        
-        // Get user details
-        const userDoc = await getDoc(doc(db, 'users', payoutData.userId));
-        const userData = userDoc.exists() ? userDoc.data() : {};
-
-        pendingPayouts.push({
-          id: doc.id,
-          ...payoutData,
-          payoutDate: payoutData.payoutDate?.toDate() || new Date(),
-          userName: userData.name || 'Unknown',
-          userEmail: userData.email || 'Unknown',
-          userPhone: userData.phone || 'Unknown'
-        });
-      }
-
-      return pendingPayouts;
-    } catch (error) {
-      console.error('Error getting pending payouts:', error);
-      return [];
-    }
-  }
-
-  // Get payout statistics
-  static async getPayoutStatistics() {
-    try {
-      const now = new Date();
-      const currentMonth = now.getMonth();
-      const currentYear = now.getFullYear();
-      
-      // Get all payouts
-      const allPayoutsSnapshot = await getDocs(collection(db, 'payouts'));
-      
-      let totalPayouts = 0;
-      let totalAmount = 0;
-      let pendingPayouts = 0;
-      let pendingAmount = 0;
-      let approvedPayouts = 0;
-      let approvedAmount = 0;
-      let monthlyPayouts = 0;
-      let monthlyAmount = 0;
-
-      allPayoutsSnapshot.docs.forEach((doc) => {
-        const data = doc.data();
-        const payoutDate = data.payoutDate?.toDate();
-        
-        totalPayouts++;
-        totalAmount += data.amount || 0;
-        
-        if (data.status === 'pending') {
-          pendingPayouts++;
-          pendingAmount += data.amount || 0;
-        } else if (data.status === 'approved') {
-          approvedPayouts++;
-          approvedAmount += data.amount || 0;
-        }
-        
-        // Monthly statistics
-        if (payoutDate && 
-            payoutDate.getMonth() === currentMonth && 
-            payoutDate.getFullYear() === currentYear) {
-          monthlyPayouts++;
-          monthlyAmount += data.amount || 0;
-        }
-      });
-
-      return {
-        totalPayouts,
-        totalAmount,
-        pendingPayouts,
-        pendingAmount,
-        approvedPayouts,
-        approvedAmount,
-        monthlyPayouts,
-        monthlyAmount,
-        averagePayoutAmount: totalPayouts > 0 ? totalAmount / totalPayouts : 0
-      };
-    } catch (error) {
-      console.error('Error getting payout statistics:', error);
-      return {
-        totalPayouts: 0,
-        totalAmount: 0,
-        pendingPayouts: 0,
-        pendingAmount: 0,
-        approvedPayouts: 0,
-        approvedAmount: 0,
-        monthlyPayouts: 0,
-        monthlyAmount: 0,
-        averagePayoutAmount: 0
-      };
-    }
-  }
-
-  // Get next payout date - Vedmurti Plan (2nd, 12th, 22nd)
-  static getNextPayoutDate() {
+class PayoutService {
+  // Get next payout date (2nd, 12th, 22nd of each month)
+  getNextPayoutDate() {
     const today = new Date();
     const currentDay = today.getDate();
-    const currentMonth = today.getMonth();
-    const currentYear = today.getFullYear();
     
-    let nextPayoutDate;
+    // Define payout dates
+    const payoutDates = [2, 12, 22];
+    
+    // Find the next payout date
+    let nextPayoutDate = new Date(today);
     
     if (currentDay < 2) {
-      nextPayoutDate = new Date(currentYear, currentMonth, 2);
+      nextPayoutDate.setDate(2);
     } else if (currentDay < 12) {
-      nextPayoutDate = new Date(currentYear, currentMonth, 12);
+      nextPayoutDate.setDate(12);
     } else if (currentDay < 22) {
-      nextPayoutDate = new Date(currentYear, currentMonth, 22);
+      nextPayoutDate.setDate(22);
     } else {
       // Next month's 2nd
-      nextPayoutDate = new Date(currentYear, currentMonth + 1, 2);
+      nextPayoutDate.setMonth(nextPayoutDate.getMonth() + 1);
+      nextPayoutDate.setDate(2);
     }
     
     return nextPayoutDate;
   }
 
-  // Calculate days until next payout
-  static getDaysUntilNextPayout() {
-    const today = new Date();
+  // Get days until next payout
+  getDaysUntilNextPayout() {
     const nextPayout = this.getNextPayoutDate();
-    const diffTime = nextPayout - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return Math.max(0, diffDays);
+    const today = new Date();
+    const timeDiff = nextPayout.getTime() - today.getTime();
+    return Math.ceil(timeDiff / (1000 * 3600 * 24));
   }
 
-  // Get payout calendar for the year - Vedmurti Plan
-  static getPayoutCalendar(year = new Date().getFullYear()) {
-    const payoutDates = [];
+  // Check if today is a payout date
+  isPayoutDate() {
+    const today = new Date();
+    const currentDay = today.getDate();
+    return [2, 12, 22].includes(currentDay);
+  }
+
+  // Generate automatic payouts for all eligible users
+  async generateAutomaticPayouts() {
+    const db = getFirestore(app);
     
-    for (let month = 0; month < 12; month++) {
-      // 2nd of each month
-      payoutDates.push(new Date(year, month, 2));
-      // 12th of each month
-      payoutDates.push(new Date(year, month, 12));
-      // 22nd of each month
-      payoutDates.push(new Date(year, month, 22));
-    }
-    
-    return payoutDates;
-  }
-
-  // Subscribe to payout updates
-  static subscribeToPayoutUpdates(userId, callback) {
-    const payoutsQuery = query(
-      collection(db, 'payouts'),
-      where('userId', '==', userId),
-      orderBy('payoutDate', 'desc'),
-      limit(20)
-    );
-
-    return onSnapshot(payoutsQuery, (snapshot) => {
-      const payouts = [];
-      snapshot.forEach((doc) => {
-        payouts.push({
-          id: doc.id,
-          ...doc.data(),
-          payoutDate: doc.data().payoutDate?.toDate() || new Date(),
-          processedDate: doc.data().processedDate?.toDate() || null
-        });
-      });
-      callback(payouts);
-    });
-  }
-
-  // Bulk approve payouts (admin function)
-  static async bulkApprovePayouts(payoutIds, adminId, notes = '') {
     try {
-      const batch = writeBatch(db);
-      const results = [];
-
-      for (const payoutId of payoutIds) {
-        const payoutRef = doc(db, 'payouts', payoutId);
-        const payoutDoc = await getDoc(payoutRef);
+      console.log('Starting automatic payout generation...');
+      
+      // Get all users with KYC completed, approved payment requests, and positive income
+      const usersQuery = query(
+        collection(db, 'users'),
+        where('kycCompleted', '==', true),
+        where('affiliateStatus', '==', true),
+        where('paymentRequestStatus', '==', 'approved')
+      );
+      
+      const usersSnapshot = await getDocs(usersQuery);
+      console.log(`Found ${usersSnapshot.size} users with KYC completed`);
+      
+      const payouts = [];
+      
+      for (const userDoc of usersSnapshot.docs) {
+        const userData = userDoc.data();
+        const userId = userDoc.id;
         
-        if (payoutDoc.exists() && payoutDoc.data().status === 'pending') {
-          const payoutData = payoutDoc.data();
+        console.log(`Processing user: ${userData.name} (${userId})`);
+        
+        // Get user's verified bank accounts
+        const bankAccountsQuery = query(
+          collection(db, 'bankAccounts'),
+          where('userId', '==', userId),
+          where('isPrimary', '==', true),
+          where('verified', '==', true)
+        );
+        
+        const bankAccountsSnapshot = await getDocs(bankAccountsQuery);
+        console.log(`User ${userData.name} has ${bankAccountsSnapshot.size} verified primary bank accounts`);
+        
+        if (!bankAccountsSnapshot.empty) {
+          const primaryAccount = bankAccountsSnapshot.docs[0].data();
           
-          // Update payout status
-          batch.update(payoutRef, {
-            status: 'approved',
-            processedDate: serverTimestamp(),
-            approvedBy: adminId,
-            adminNotes: notes
-          });
-
-          // Update user's payout status
-          const userRef = doc(db, 'users', payoutData.userId);
-          batch.update(userRef, {
-            pendingPayout: 0,
-            lastApprovedPayout: serverTimestamp()
-          });
-
-          results.push({ payoutId, amount: payoutData.amount, status: 'approved' });
-        } else {
-          results.push({ payoutId, status: 'skipped', reason: 'Not found or not pending' });
+          // Calculate total income from all sources
+          const totalIncome = await this.calculateUserTotalIncome(userId);
+          console.log(`User ${userData.name} total income: ${totalIncome}`);
+          
+          if (totalIncome > 0) {
+            // Create payout record
+            const payoutData = {
+              userId: userId,
+              userEmail: userData.email,
+              userName: userData.name,
+              userReferralCode: userData.referralCode,
+              totalIncome: totalIncome,
+              payoutAmount: totalIncome * 0.95, // 5% deduction
+              deduction: totalIncome * 0.05,
+              bankAccount: {
+                accountHolderName: primaryAccount.accountHolderName,
+                accountNumber: primaryAccount.accountNumber,
+                bankName: primaryAccount.bankName,
+                ifscCode: primaryAccount.ifscCode,
+                branch: primaryAccount.branch
+              },
+              status: 'pending',
+              payoutDate: new Date(),
+              generatedAt: new Date(),
+              payoutCycle: this.getCurrentPayoutCycle()
+            };
+            
+            console.log(`Creating payout for user ${userData.name}: ${payoutData.payoutAmount}`);
+            
+            // Save payout record
+            const payoutRef = doc(collection(db, 'payouts'));
+            await setDoc(payoutRef, payoutData);
+            
+            payouts.push({
+              id: payoutRef.id,
+              ...payoutData
+            });
+            
+            // Reset user's income after payout generation
+            await this.resetUserIncome(userId);
+          }
         }
       }
-
-      await batch.commit();
-      return results;
+      
+      console.log(`Generated ${payouts.length} payouts total`);
+      return payouts;
     } catch (error) {
-      console.error('Error bulk approving payouts:', error);
+      console.error('Error generating automatic payouts:', error);
       throw error;
     }
   }
 
-  // Generate payout report
-  static async generatePayoutReport(startDate, endDate) {
+  // Calculate user's total income from all sources
+  async calculateUserTotalIncome(userId) {
+    const db = getFirestore(app);
+    
+    try {
+      // Get user data
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (!userDoc.exists()) {
+        console.log('User not found:', userId);
+        return 0;
+      }
+      
+      const userData = userDoc.data();
+      if (!userData.referralCode) {
+        console.log('User has no referral code:', userId);
+        return 0;
+      }
+      
+      // Build tree for income calculation (same logic as AffiliateDashboard) - Only approved users
+      const buildTree = async (referralCode, level = 0, maxLevel = 3) => {
+        if (level >= maxLevel) return null;
+        const userQuery = query(collection(db, 'users'), where('referralCode', '==', referralCode));
+        const userSnapshot = await getDocs(userQuery);
+        if (userSnapshot.empty) return null;
+        const userDoc = userSnapshot.docs[0];
+        const userData = userDoc.data();
+        
+        // Only include users with approved payment requests for pair matching
+        const isPaymentApproved = userData.affiliateStatus === true && userData.paymentRequestStatus === 'approved';
+        
+        let leftNode = null, rightNode = null;
+        if (userData.leftDownLine) leftNode = await buildTree(userData.leftDownLine, level + 1, maxLevel);
+        if (userData.rightDownLine) rightNode = await buildTree(userData.rightDownLine, level + 1, maxLevel);
+        return {
+          id: userDoc.id,
+          name: userData.name || 'Unknown',
+          referralCode: userData.referralCode,
+          email: userData.email,
+          joinDate: userData.joinDate,
+          affiliateStatus: userData.affiliateStatus,
+          paymentRequestStatus: userData.paymentRequestStatus,
+          isPaymentApproved,
+          leftNode,
+          rightNode,
+          level
+        };
+      };
+      
+      const treeData = await buildTree(userData.referralCode);
+      if (!treeData) {
+        console.log('No tree data for user:', userId);
+        return 0;
+      }
+      
+      // Calculate promotional income - Only count approved users
+      const countLeg = (node) => {
+        if (!node) return 0;
+        const currentUserCount = node.isPaymentApproved ? 1 : 0;
+        return currentUserCount + countLeg(node.leftNode) + countLeg(node.rightNode);
+      };
+      let l = treeData.leftNode ? countLeg(treeData.leftNode) : 0;
+      let r = treeData.rightNode ? countLeg(treeData.rightNode) : 0;
+      let pairs = 0;
+      while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+        if (l > r) {
+          l -= 2;
+          r -= 1;
+        } else {
+          l -= 1;
+          r -= 2;
+        }
+        pairs += 1;
+      }
+      const promotionalIncome = pairs * 400;
+      
+      // Calculate leadership income - Only count approved users
+      const q = query(
+        collection(db, 'users'), 
+        where('referredBy', '==', userData.referralCode),
+        where('affiliateStatus', '==', true),
+        where('paymentRequestStatus', '==', 'approved')
+      );
+      const snapshot = await getDocs(q);
+      const directCount = snapshot.size;
+      
+      let leadershipIncome = 0;
+      if (directCount >= 10) {
+        const sumDownlinePromotionalIncome = (node) => {
+          if (!node) return 0;
+          // Only count legs from users with approved payment requests
+          const countLeg = (n) => {
+            if (!n) return 0;
+            const currentUserCount = n.isPaymentApproved ? 1 : 0;
+            return currentUserCount + countLeg(n.leftNode) + countLeg(n.rightNode);
+          };
+          let l = node.leftNode ? countLeg(node.leftNode) : 0;
+          let r = node.rightNode ? countLeg(node.rightNode) : 0;
+          let pairs = 0;
+          while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+            if (l > r) {
+              l -= 2;
+              r -= 1;
+            } else {
+              l -= 1;
+              r -= 2;
+            }
+            pairs += 1;
+          }
+          return (pairs * 400) + sumDownlinePromotionalIncome(node.leftNode) + sumDownlinePromotionalIncome(node.rightNode);
+        };
+        
+        let totalDownlineIncome = 0;
+        if (treeData.leftNode) totalDownlineIncome += sumDownlinePromotionalIncome(treeData.leftNode);
+        if (treeData.rightNode) totalDownlineIncome += sumDownlinePromotionalIncome(treeData.rightNode);
+        leadershipIncome = Math.floor(totalDownlineIncome * 0.10);
+      }
+      
+      // Calculate rewards
+      let rewardsIncome = 0;
+      if (pairs >= 500) {
+        rewardsIncome += 25000;
+        if (pairs >= 600) {
+          rewardsIncome += 5000;
+        }
+      }
+      
+      const totalIncome = promotionalIncome + leadershipIncome + rewardsIncome;
+      console.log(`Income calculation for user ${userId}:`, {
+        promotionalIncome,
+        leadershipIncome,
+        rewardsIncome,
+        totalIncome
+      });
+      
+      return totalIncome;
+    } catch (error) {
+      console.error('Error calculating user total income:', error);
+      return 0;
+    }
+  }
+
+  // Reset user's income after payout (track payout history)
+  async resetUserIncome(userId) {
+    const db = getFirestore(app);
+    
+    try {
+      // Since income is calculated in real-time, we just track the payout
+      // Update user document to track last payout
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const totalIncome = await this.calculateUserTotalIncome(userId);
+        
+        await updateDoc(doc(db, 'users', userId), {
+          lastPayoutDate: new Date(),
+          lastPayoutAmount: totalIncome,
+          lastPayoutCycle: this.getCurrentPayoutCycle()
+        });
+      }
+    } catch (error) {
+      console.error('Error tracking payout for user:', error);
+      throw error;
+    }
+  }
+
+  // Get current payout cycle
+  getCurrentPayoutCycle() {
+    const today = new Date();
+    const month = today.getMonth() + 1;
+    const year = today.getFullYear();
+    const day = today.getDate();
+    
+    if (day <= 2) return `${year}-${month.toString().padStart(2, '0')}-01`;
+    if (day <= 12) return `${year}-${month.toString().padStart(2, '0')}-02`;
+    if (day <= 22) return `${year}-${month.toString().padStart(2, '0')}-03`;
+    
+    // If after 22nd, it's the next month's first cycle
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    return `${nextYear}-${nextMonth.toString().padStart(2, '0')}-01`;
+  }
+
+  // Get all payouts for admin
+  async getAllPayouts() {
+    const db = getFirestore(app);
+    
     try {
       const payoutsQuery = query(
         collection(db, 'payouts'),
-        where('payoutDate', '>=', startDate),
-        where('payoutDate', '<=', endDate),
-        orderBy('payoutDate', 'desc')
+        orderBy('generatedAt', 'desc')
       );
-
-      const payoutsSnapshot = await getDocs(payoutsQuery);
-      const reportData = [];
-      let totalAmount = 0;
-      let totalDeductions = 0;
-
-      for (const doc of payoutsSnapshot.docs) {
-        const payoutData = doc.data();
-        
-        // Get user details
-        const userDoc = await getDoc(doc(db, 'users', payoutData.userId));
-        const userData = userDoc.exists() ? userDoc.data() : {};
-
-        const record = {
-          payoutId: doc.id,
-          userId: payoutData.userId,
-          userName: userData.name || 'Unknown',
-          userEmail: userData.email || 'Unknown',
-          amount: payoutData.amount || 0,
-          originalAmount: payoutData.originalAmount || 0,
-          deductionAmount: payoutData.deductionAmount || 0,
-          status: payoutData.status,
-          payoutDate: payoutData.payoutDate?.toDate() || new Date(),
-          processedDate: payoutData.processedDate?.toDate() || null,
-          payoutCycle: payoutData.payoutCycle
-        };
-
-        reportData.push(record);
-        totalAmount += record.amount;
-        totalDeductions += record.deductionAmount;
-      }
-
-      return {
-        reportData,
-        summary: {
-          totalPayouts: reportData.length,
-          totalAmount,
-          totalDeductions,
-          totalOriginalAmount: totalAmount + totalDeductions,
-          averagePayoutAmount: reportData.length > 0 ? totalAmount / reportData.length : 0,
-          period: {
-            startDate,
-            endDate
-          }
-        }
-      };
+      
+      const snapshot = await getDocs(payoutsQuery);
+      const payouts = [];
+      
+      snapshot.forEach((doc) => {
+        payouts.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+      
+      return payouts;
     } catch (error) {
-      console.error('Error generating payout report:', error);
+      console.error('Error fetching payouts:', error);
       throw error;
     }
   }
+
+  // Update payout status
+  async updatePayoutStatus(payoutId, status) {
+    const db = getFirestore(app);
+    
+    try {
+      const payoutRef = doc(db, 'payouts', payoutId);
+      await updateDoc(payoutRef, {
+        status: status,
+        updatedAt: new Date()
+      });
+    } catch (error) {
+      console.error('Error updating payout status:', error);
+      throw error;
+    }
+  }
+
+  // Get payouts by status
+  async getPayoutsByStatus(status) {
+    const db = getFirestore(app);
+    
+    try {
+      const payoutsQuery = query(
+        collection(db, 'payouts'),
+        where('status', '==', status),
+        orderBy('generatedAt', 'desc')
+      );
+      
+      const snapshot = await getDocs(payoutsQuery);
+      const payouts = [];
+      
+      snapshot.forEach((doc) => {
+        payouts.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+      
+      return payouts;
+    } catch (error) {
+      console.error('Error fetching payouts by status:', error);
+      throw error;
+    }
+  }
+
+  // Get payout statistics
+  async getPayoutStatistics() {
+    const db = getFirestore(app);
+    
+    try {
+      const payoutsQuery = query(collection(db, 'payouts'));
+      const snapshot = await getDocs(payoutsQuery);
+      
+      let totalPayouts = 0;
+      let totalAmount = 0;
+      let pendingPayouts = 0;
+      let completedPayouts = 0;
+      
+      snapshot.forEach((doc) => {
+        const payout = doc.data();
+        totalPayouts++;
+        totalAmount += payout.payoutAmount || 0;
+        
+        if (payout.status === 'pending') {
+          pendingPayouts++;
+        } else if (payout.status === 'completed') {
+          completedPayouts++;
+        }
+      });
+      
+      return {
+        totalPayouts,
+        totalAmount,
+        pendingPayouts,
+        completedPayouts,
+        averagePayout: totalPayouts > 0 ? totalAmount / totalPayouts : 0
+      };
+    } catch (error) {
+      console.error('Error fetching payout statistics:', error);
+      throw error;
+    }
+  }
+
+  // Export payouts to Excel format (CSV)
+  exportPayoutsToCSV(payouts) {
+    const headers = [
+      'Payout ID',
+      'User Name',
+      'User Email',
+      'Referral Code',
+      'Total Income',
+      'Payout Amount',
+      'Deduction',
+      'Bank Account Holder',
+      'Bank Name',
+      'Account Number',
+      'IFSC Code',
+      'Branch',
+      'Status',
+      'Payout Date',
+      'Generated At'
+    ];
+    
+    const csvData = payouts.map(payout => [
+      payout.id,
+      payout.userName,
+      payout.userEmail,
+      payout.userReferralCode,
+      payout.totalIncome,
+      payout.payoutAmount,
+      payout.deduction,
+      payout.bankAccount.accountHolderName,
+      payout.bankAccount.bankName,
+      payout.bankAccount.accountNumber,
+      payout.bankAccount.ifscCode,
+      payout.bankAccount.branch,
+      payout.status,
+      payout.payoutDate?.toDate?.()?.toLocaleDateString() || '',
+      payout.generatedAt?.toDate?.()?.toLocaleDateString() || ''
+    ]);
+    
+    const csvContent = [headers, ...csvData]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `payouts_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  }
 }
 
-export default PayoutService;
+export default new PayoutService();

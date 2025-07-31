@@ -10,13 +10,11 @@ import {
   FaTree
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
+import { useUser } from "../../../context/UserContext";
 
 const AffilateSidebar = ({ isSidebarOpen, toggleSidebar, isMobile, activeItem, setActiveItem }) => {
   const navigate = useNavigate();
-
-  const user = [
-    {name: "Rushi"}
-  ]
+  const { currentUser, logout } = useUser();
 
   const menuItems = [
     { name: 'Dashboard', icon: FaHome, path: '/affilate-dashboard' },
@@ -34,9 +32,14 @@ const AffilateSidebar = ({ isSidebarOpen, toggleSidebar, isMobile, activeItem, s
     if (isMobile) toggleSidebar();
   };
 
-  const handleLogout = () => {
-   
-    navigate("/login");
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate("/login");
+    } catch (error) {
+      console.error('Logout error:', error);
+      navigate("/login");
+    }
   };
 
   return (
@@ -97,12 +100,22 @@ const AffilateSidebar = ({ isSidebarOpen, toggleSidebar, isMobile, activeItem, s
 
       <div className="p-4 border-t border-green-700">
         <div className={`flex items-center ${isSidebarOpen ? 'justify-start' : 'justify-center'}`}>
-          <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center">
-            {user?.name?.charAt(0) || 'S'}
-          </div>
+          {currentUser?.profilePic ? (
+            <img 
+              src={currentUser.profilePic} 
+              alt={currentUser.name} 
+              className="w-8 h-8 rounded-full object-cover"
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center">
+              {currentUser?.name?.charAt(0)?.toUpperCase() || 'U'}
+            </div>
+          )}
           {isSidebarOpen && (
             <div className="ml-3">
-              <p className="text-sm font-medium">{user?.name || 'Student'}</p>
+              <p className="text-sm font-medium">{currentUser?.name || 'User'}</p>
+              <p className="text-xs text-green-200">{currentUser?.email || ''}</p>
+              <p className="text-xs text-green-200">ID: {currentUser?.referralCode || 'N/A'}</p>
               <button onClick={handleLogout} className="flex items-center text-xs text-green-200 hover:text-white mt-1">
                 <FaSignOutAlt className="mr-1" />
                 Logout

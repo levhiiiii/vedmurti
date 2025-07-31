@@ -11,11 +11,12 @@ const AdminLayout = () => {
   const getActiveItem = () => {
     const path = location.pathname;
     if (path.includes('profile')) return 'Profile';
-    if (path.includes('update')) return 'Update Profile';
-    if (path.includes('courses')) return 'My Courses';
-    if (path.includes('payments')) return 'Payments';
-    if (path.includes('certificates')) return 'Certificates';
-    return 'Home';
+    if (path.includes('payment-requests')) return 'Payment Requests';
+    if (path.includes('payouts')) return 'Payouts';
+    if (path.includes('tree')) return 'Network';
+    if (path.includes('kyc-verification')) return 'KYC Verification';
+    if (path.includes('add-product')) return 'Add Product';
+    return 'Dashboard';
   };
 
   const [activeItem, setActiveItem] = useState(getActiveItem());

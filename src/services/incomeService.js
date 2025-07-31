@@ -153,17 +153,64 @@ export class IncomeService {
 
       const mlmData = mlmDoc.data();
       
-      // Calculate today's income
+      console.log('MLM Data for user:', userId, mlmData);
+      console.log('Daily Income from MLM:', mlmData.dailyIncome);
+      console.log('Last Daily Reset:', mlmData.lastDailyReset);
+      
+      // Ensure today's income record exists
+      await this.ensureTodayIncomeRecord(userId, mlmData);
+      
+      // Calculate today's income based on current income calculations
       const today = new Date();
       const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       
+      // First try to get from income records
       const todayIncomeQuery = query(
         collection(db, 'incomeRecords'),
         where('userId', '==', userId),
         where('createdAt', '>=', todayStart)
       );
       const todayIncomeSnapshot = await getDocs(todayIncomeQuery);
-      const todayIncome = todayIncomeSnapshot.docs.reduce((sum, doc) => sum + (doc.data().amount || 0), 0);
+      let todayIncome = todayIncomeSnapshot.docs.reduce((sum, doc) => sum + (doc.data().amount || 0), 0);
+      
+      // If no income records for today, calculate based on daily income from MLM data
+      if (todayIncome === 0 && mlmData) {
+        const lastReset = mlmData.lastDailyReset?.toDate() || new Date(0);
+        const hoursDiff = (today - lastReset) / (1000 * 60 * 60);
+        const shouldReset = hoursDiff >= 24;
+        
+        console.log('Today Income from records:', todayIncome);
+        console.log('Last Reset:', lastReset);
+        console.log('Hours since reset:', hoursDiff);
+        console.log('Should reset:', shouldReset);
+        console.log('Daily Income from MLM:', mlmData.dailyIncome);
+        
+        if (!shouldReset) {
+          // Use the daily income from MLM data if it hasn't been reset today
+          todayIncome = mlmData.dailyIncome || 0;
+          console.log('Using daily income as fallback:', todayIncome);
+        }
+      }
+      
+      // If still 0, try to calculate based on current network structure
+      if (todayIncome === 0) {
+        console.log('Attempting to calculate income from network structure...');
+        try {
+          // Get user data to find referral code
+          const userDoc = await getDoc(doc(db, 'users', userId));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            if (userData.referralCode) {
+              // Calculate income based on current network (similar to payout service)
+              const calculatedIncome = await this.calculateIncomeFromNetwork(userData.referralCode);
+              todayIncome = calculatedIncome;
+              console.log('Calculated income from network:', calculatedIncome);
+            }
+          }
+        } catch (error) {
+          console.error('Error calculating income from network:', error);
+        }
+      }
 
       // Calculate monthly income
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -187,6 +234,8 @@ export class IncomeService {
       const maxDailyPairs = 400;
       const maxDailyIncome = 2000;
 
+      console.log('Final todayIncome being returned:', todayIncome);
+      
       return {
         // Vedmurti Plan Income Types
         promotionalIncome: mlmData.promotionalIncome || 0,
@@ -628,6 +677,76 @@ export class IncomeService {
     }
   }
 
+  // Calculate income from network structure
+  static async calculateIncomeFromNetwork(referralCode) {
+    try {
+      console.log('Calculating income from network for referral code:', referralCode);
+      
+      // Build tree for income calculation (similar to payout service)
+      const buildTree = async (referralCode, level = 0, maxLevel = 3) => {
+        if (level >= maxLevel) return null;
+        const userQuery = query(collection(db, 'users'), where('referralCode', '==', referralCode));
+        const userSnapshot = await getDocs(userQuery);
+        if (userSnapshot.empty) return null;
+        const userDoc = userSnapshot.docs[0];
+        const userData = userDoc.data();
+        
+        // Only include users with approved payment requests for pair matching
+        const isPaymentApproved = userData.affiliateStatus === true && userData.paymentRequestStatus === 'approved';
+        
+        let leftNode = null, rightNode = null;
+        if (userData.leftDownLine) leftNode = await buildTree(userData.leftDownLine, level + 1, maxLevel);
+        if (userData.rightDownLine) rightNode = await buildTree(userData.rightDownLine, level + 1, maxLevel);
+        return {
+          id: userDoc.id,
+          name: userData.name || 'Unknown',
+          referralCode: userData.referralCode,
+          email: userData.email,
+          joinDate: userData.joinDate,
+          affiliateStatus: userData.affiliateStatus,
+          paymentRequestStatus: userData.paymentRequestStatus,
+          isPaymentApproved,
+          leftNode,
+          rightNode,
+          level
+        };
+      };
+      
+      const treeData = await buildTree(referralCode);
+      if (!treeData) {
+        console.log('No tree data found');
+        return 0;
+      }
+      
+      // Calculate promotional income - Only count approved users
+      const countLeg = (node) => {
+        if (!node) return 0;
+        const currentUserCount = node.isPaymentApproved ? 1 : 0;
+        return currentUserCount + countLeg(node.leftNode) + countLeg(node.rightNode);
+      };
+      let l = treeData.leftNode ? countLeg(treeData.leftNode) : 0;
+      let r = treeData.rightNode ? countLeg(treeData.rightNode) : 0;
+      let pairs = 0;
+      while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+        if (l > r) {
+          l -= 2;
+          r -= 1;
+        } else {
+          l -= 1;
+          r -= 2;
+        }
+        pairs += 1;
+      }
+      const promotionalIncome = pairs * 400;
+      
+      console.log('Calculated pairs:', pairs, 'Promotional income:', promotionalIncome);
+      return promotionalIncome;
+    } catch (error) {
+      console.error('Error calculating income from network:', error);
+      return 0;
+    }
+  }
+
   // Get top earners
   static async getTopEarners(limit = 10) {
     try {
@@ -660,6 +779,65 @@ export class IncomeService {
     } catch (error) {
       console.error('Error getting top earners:', error);
       return [];
+    }
+  }
+
+  // Ensure today's income record exists
+  static async ensureTodayIncomeRecord(userId, mlmData) {
+    try {
+      console.log('ensureTodayIncomeRecord called for user:', userId);
+      console.log('MLM Data:', mlmData);
+      
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      // Check if income record already exists for today
+      const todayIncomeQuery = query(
+        collection(db, 'incomeRecords'),
+        where('userId', '==', userId),
+        where('createdAt', '>=', todayStart),
+        where('type', '==', 'daily_summary')
+      );
+      const todayIncomeSnapshot = await getDocs(todayIncomeQuery);
+      
+      console.log('Existing daily summary records for today:', todayIncomeSnapshot.size);
+      
+      if (todayIncomeSnapshot.empty && mlmData) {
+        const lastReset = mlmData.lastDailyReset?.toDate() || new Date(0);
+        const hoursDiff = (today - lastReset) / (1000 * 60 * 60);
+        const shouldReset = hoursDiff >= 24;
+        
+        console.log('Last reset:', lastReset);
+        console.log('Hours since reset:', hoursDiff);
+        console.log('Should reset:', shouldReset);
+        console.log('Daily income:', mlmData.dailyIncome);
+        
+        if (!shouldReset && mlmData.dailyIncome > 0) {
+          // Create a daily summary income record
+          const incomeRecord = {
+            userId,
+            type: 'daily_summary',
+            amount: mlmData.dailyIncome,
+            description: `Daily Income Summary: ₹${mlmData.dailyIncome}`,
+            dailyPairs: mlmData.dailyPairs || 0,
+            dailyIncome: mlmData.dailyIncome,
+            createdAt: serverTimestamp(),
+            status: 'completed',
+            isDailySummary: true
+          };
+
+          const incomeRef = doc(collection(db, 'incomeRecords'));
+          await setDoc(incomeRef, incomeRecord);
+          
+          console.log(`Created daily income record for user ${userId}: ₹${mlmData.dailyIncome}`);
+        } else {
+          console.log('Not creating daily income record - shouldReset:', shouldReset, 'dailyIncome:', mlmData.dailyIncome);
+        }
+      } else {
+        console.log('Daily summary record already exists or no MLM data');
+      }
+    } catch (error) {
+      console.error('Error ensuring today income record:', error);
     }
   }
 }

@@ -12,6 +12,7 @@ import CartPage from "./pages/E-Commerce/Cart"
 import LoginPage from "./pages/E-Commerce/Login"
 import ProductForm from "./pages/E-Commerce/ProductForm.jsx"
 import RegisterPage from "./pages/E-Commerce/Register"
+
 import { useEffect } from "react"
 import { useLoader } from "./context/LoaderContext"
 import Account from "./pages/E-Commerce/account/Account"
@@ -30,7 +31,7 @@ import KYCPage from "./pages/Affilate/pages/KYC.jsx"
 import AdminLayout from "./pages/Admin/Layout/AdminLayout.jsx"
 import AdminDashboard from "./pages/Admin/pages/AdminDashboard.jsx"
 import AdminLogin from "./pages/Admin/pages/AdminLogin.jsx"
-import PayoutPage from "./pages/Admin/pages/Payout.jsx"
+import PayoutManagement from "./pages/Admin/pages/PayoutManagement.jsx"
 import PaymentRequests from "./pages/Admin/pages/PaymentRequests.jsx"
 import PaymentRequestPage from "./pages/PaymentRequestPage.jsx"
 import ProtectedRoute from "./components/ProtectedRoute.jsx"
@@ -41,6 +42,8 @@ import Tree from './pages/Affilate/pages/Tree.jsx'
 import MyNetwork from "./pages/Affilate/pages/MyNetwork.jsx"
 import ProductDetails from "./pages/E-Commerce/ProductDetails.jsx"
 import AdminNetworkTree from "./pages/Admin/pages/AdminNetworkTree.jsx"
+import KYCVerification from "./pages/Admin/pages/KYCVerification.jsx"
+import ManageProducts from "./pages/Admin/pages/ManageProducts.jsx"
 
 const App = () => {
 
@@ -63,6 +66,8 @@ const App = () => {
 
 
 
+
+
   return (
     <UserProvider>
       <CartProvider>
@@ -79,6 +84,7 @@ const App = () => {
           <Route path="/cart" element={<CartPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+
           <Route path="/affiliate" element={<AffiliateHero />} />
           <Route path="/payment-request" element={<PaymentRequestPage />} />
           <Route path="/adminlogin" element={<AdminLogin />} />
@@ -110,10 +116,12 @@ const App = () => {
           <Route path="admin" element={<AdminLayout />}>
             <Route index element={<AdminDashboard />} />
             <Route path="payment-requests" element={<PaymentRequests />} />
-            <Route path="payouts" element={<PayoutPage />} />
+            <Route path="payouts" element={<PayoutManagement />} />
             <Route path="tree" element={<AdminNetworkTree />} />
+            <Route path="kyc-verification" element={<KYCVerification />} />
             <Route path="profile" element={<AffilateProfile />} />
             <Route path="add-product" element={<ProductForm />} />
+            <Route path="manage-products" element={<ManageProducts />} />
           </Route>
 
 

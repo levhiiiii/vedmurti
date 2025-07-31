@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BsBank } from 'react-icons/bs';
 import { 
   FaCreditCard, 
@@ -7,39 +7,25 @@ import {
   FaCheck, 
   FaEdit,
   FaArrowUp,
-  FaArrowDown
+  FaArrowDown,
+  FaSpinner
 } from 'react-icons/fa';
+import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { app } from '../../../Firebase/firebase';
+import { useUser } from '../../../context/UserContext';
 
 const KYCPage = () => {
-  // Initial bank accounts data
-  const initialBankAccounts = [
-    {
-      id: 1,
-      accountHolderName: 'John Doe',
-      accountNumber: '1234567890',
-      bankName: 'Chase Bank',
-      branch: 'New York Main Branch',
-      ifscCode: 'CHASUS123',
-      accountType: 'Checking',
-      isPrimary: true,
-      verified: true
-    },
-    {
-      id: 2,
-      accountHolderName: 'John Doe',
-      accountNumber: '9876543210',
-      bankName: 'Bank of America',
-      branch: 'San Francisco Branch',
-      ifscCode: 'BOFAUS456',
-      accountType: 'Savings',
-      isPrimary: false,
-      verified: true
-    }
-  ];
-
-  const [bankAccounts, setBankAccounts] = useState(initialBankAccounts);
+  const { currentUser } = useUser();
+  const [bankAccounts, setBankAccounts] = useState([]);
+  
+  // Debug current user
+  console.log('KYC Page - Current user:', currentUser);
+  console.log('KYC Page - Current user UID:', currentUser?.uid);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editMode, setEditMode] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const [formData, setFormData] = useState({
     accountHolderName: '',
     accountNumber: '',
@@ -49,6 +35,77 @@ const KYCPage = () => {
     accountType: 'Checking'
   });
 
+  // Fetch bank accounts in real-time
+  useEffect(() => {
+    if (!currentUser?.uid) {
+      console.log('No current user UID available');
+      setLoading(false);
+      return;
+    }
+
+    console.log('Fetching bank accounts for user:', currentUser.uid);
+    const db = getFirestore(app);
+    const bankAccountsRef = collection(db, 'bankAccounts');
+    const q = query(
+      bankAccountsRef, 
+      where('userId', '==', currentUser.uid),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const accounts = [];
+      console.log('Bank accounts snapshot received, size:', snapshot.size);
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        console.log('Bank account data:', { id: doc.id, ...data });
+        accounts.push({
+          id: doc.id,
+          ...data
+        });
+      });
+      console.log('Setting bank accounts:', accounts);
+      setBankAccounts(accounts);
+      setLoading(false);
+    }, (error) => {
+      console.error('Error fetching bank accounts:', error);
+      
+      // If it's an index error, try without orderBy
+      if (error.code === 'failed-precondition') {
+        console.log('Index not available, trying without orderBy');
+        const simpleQuery = query(
+          bankAccountsRef, 
+          where('userId', '==', currentUser.uid)
+        );
+        
+        const simpleUnsubscribe = onSnapshot(simpleQuery, (snapshot) => {
+          const accounts = [];
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            console.log('Bank account data (simple query):', { id: doc.id, ...data });
+            accounts.push({
+              id: doc.id,
+              ...data
+            });
+          });
+          console.log('Setting bank accounts (simple query):', accounts);
+          setBankAccounts(accounts);
+          setLoading(false);
+        }, (simpleError) => {
+          console.error('Error with simple query:', simpleError);
+          setError('Failed to load bank accounts: ' + simpleError.message);
+          setLoading(false);
+        });
+        
+        return () => simpleUnsubscribe();
+      } else {
+        setError('Failed to load bank accounts: ' + error.message);
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -57,96 +114,228 @@ const KYCPage = () => {
     }));
   };
 
-  const handleAddAccount = () => {
-    const newAccount = {
-      id: Date.now(),
-      ...formData,
-      isPrimary: bankAccounts.length === 0,
-      verified: false
-    };
-    
-    setBankAccounts(prev => [...prev, newAccount]);
-    setFormData({
-      accountHolderName: '',
-      accountNumber: '',
-      bankName: '',
-      branch: '',
-      ifscCode: '',
-      accountType: 'Checking'
-    });
-    setShowAddForm(false);
-  };
-
-  const handleEditAccount = (id) => {
-    const accountToEdit = bankAccounts.find(account => account.id === id);
-    if (accountToEdit) {
-      setFormData({
-        accountHolderName: accountToEdit.accountHolderName,
-        accountNumber: accountToEdit.accountNumber,
-        bankName: accountToEdit.bankName,
-        branch: accountToEdit.branch,
-        ifscCode: accountToEdit.ifscCode,
-        accountType: accountToEdit.accountType
-      });
-      setEditMode(id);
-      setShowAddForm(true);
-    }
-  };
-
-  const handleUpdateAccount = () => {
-    setBankAccounts(prev =>
-      prev.map(account =>
-        account.id === editMode
-          ? { ...account, ...formData }
-          : account
-      )
-    );
-    setEditMode(null);
-    setShowAddForm(false);
-    setFormData({
-      accountHolderName: '',
-      accountNumber: '',
-      bankName: '',
-      branch: '',
-      ifscCode: '',
-      accountType: 'Checking'
-    });
-  };
-
-  const handleDeleteAccount = (id) => {
-    if (bankAccounts.find(account => account.id === id)?.isPrimary) {
-      alert('Please set another account as primary before deleting this one.');
+  const handleAddAccount = async () => {
+    if (!currentUser?.uid) {
+      setError('User not authenticated');
       return;
     }
-    setBankAccounts(prev => prev.filter(account => account.id !== id));
+
+    try {
+      setSaving(true);
+      setError(null);
+      
+      console.log('Adding bank account for user:', currentUser.uid);
+      console.log('Form data:', formData);
+      
+      const db = getFirestore(app);
+      const bankAccountsRef = collection(db, 'bankAccounts');
+      
+      const newAccount = {
+        userId: currentUser.uid,
+        accountHolderName: formData.accountHolderName,
+        accountNumber: formData.accountNumber,
+        bankName: formData.bankName,
+        branch: formData.branch,
+        ifscCode: formData.ifscCode,
+        accountType: formData.accountType,
+        isPrimary: bankAccounts.length === 0,
+        verified: false,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      console.log('New account data:', newAccount);
+      const docRef = await addDoc(bankAccountsRef, newAccount);
+      console.log('Bank account added successfully with ID:', docRef.id);
+      
+      // Mark user as KYC completed when they add their first bank account
+      if (bankAccounts.length === 0) {
+        console.log('Marking user as KYC completed');
+        const userRef = doc(db, 'users', currentUser.uid);
+        await updateDoc(userRef, {
+          kycCompleted: true,
+          kycCompletedAt: new Date()
+        });
+        console.log('User marked as KYC completed');
+      }
+      
+      setFormData({
+        accountHolderName: '',
+        accountNumber: '',
+        bankName: '',
+        branch: '',
+        ifscCode: '',
+        accountType: 'Checking'
+      });
+      setShowAddForm(false);
+    } catch (error) {
+      console.error('Error adding bank account:', error);
+      setError('Failed to add bank account: ' + error.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleSetPrimary = (id) => {
-    setBankAccounts(prev =>
-      prev.map(account => ({
-        ...account,
-        isPrimary: account.id === id
-      }))
-    );
+  const handleEditAccount = (account) => {
+    setFormData({
+      accountHolderName: account.accountHolderName,
+      accountNumber: account.accountNumber,
+      bankName: account.bankName,
+      branch: account.branch,
+      ifscCode: account.ifscCode,
+      accountType: account.accountType
+    });
+    setEditMode(account.id);
+    setShowAddForm(true);
   };
 
-  const handleMoveUp = (id) => {
+  const handleUpdateAccount = async () => {
+    if (!editMode) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+      
+      const db = getFirestore(app);
+      const accountRef = doc(db, 'bankAccounts', editMode);
+      
+      await updateDoc(accountRef, {
+        accountHolderName: formData.accountHolderName,
+        accountNumber: formData.accountNumber,
+        bankName: formData.bankName,
+        branch: formData.branch,
+        ifscCode: formData.ifscCode,
+        accountType: formData.accountType,
+        updatedAt: new Date()
+      });
+
+      setEditMode(null);
+      setShowAddForm(false);
+      setFormData({
+        accountHolderName: '',
+        accountNumber: '',
+        bankName: '',
+        branch: '',
+        ifscCode: '',
+        accountType: 'Checking'
+      });
+    } catch (error) {
+      console.error('Error updating bank account:', error);
+      setError('Failed to update bank account');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = async (id) => {
+    const accountToDelete = bankAccounts.find(account => account.id === id);
+    if (accountToDelete?.isPrimary) {
+      setError('Please set another account as primary before deleting this one.');
+      return;
+    }
+
+    if (!window.confirm('Are you sure you want to delete this bank account?')) {
+      return;
+    }
+
+    try {
+      setError(null);
+      const db = getFirestore(app);
+      const accountRef = doc(db, 'bankAccounts', id);
+      await deleteDoc(accountRef);
+    } catch (error) {
+      console.error('Error deleting bank account:', error);
+      setError('Failed to delete bank account');
+    }
+  };
+
+  const handleSetPrimary = async (id) => {
+    try {
+      setError(null);
+      const db = getFirestore(app);
+      
+      // First, set all accounts as non-primary
+      const batch = [];
+      bankAccounts.forEach(account => {
+        const accountRef = doc(db, 'bankAccounts', account.id);
+        batch.push(updateDoc(accountRef, { isPrimary: false }));
+      });
+      
+      // Then set the selected account as primary
+      const primaryAccountRef = doc(db, 'bankAccounts', id);
+      batch.push(updateDoc(primaryAccountRef, { isPrimary: true }));
+      
+      await Promise.all(batch);
+    } catch (error) {
+      console.error('Error setting primary account:', error);
+      setError('Failed to set primary account');
+    }
+  };
+
+  const handleMoveUp = async (id) => {
     const index = bankAccounts.findIndex(account => account.id === id);
     if (index > 0) {
-      const newAccounts = [...bankAccounts];
-      [newAccounts[index], newAccounts[index - 1]] = [newAccounts[index - 1], newAccounts[index]];
-      setBankAccounts(newAccounts);
+      try {
+        setError(null);
+        const db = getFirestore(app);
+        
+        // Swap the order by updating createdAt timestamps
+        const currentAccount = bankAccounts[index];
+        const previousAccount = bankAccounts[index - 1];
+        
+        const currentRef = doc(db, 'bankAccounts', currentAccount.id);
+        const previousRef = doc(db, 'bankAccounts', previousAccount.id);
+        
+        await Promise.all([
+          updateDoc(currentRef, { createdAt: previousAccount.createdAt }),
+          updateDoc(previousRef, { createdAt: currentAccount.createdAt })
+        ]);
+      } catch (error) {
+        console.error('Error moving account:', error);
+        setError('Failed to reorder accounts');
+      }
     }
   };
 
-  const handleMoveDown = (id) => {
+  const handleMoveDown = async (id) => {
     const index = bankAccounts.findIndex(account => account.id === id);
     if (index < bankAccounts.length - 1) {
-      const newAccounts = [...bankAccounts];
-      [newAccounts[index], newAccounts[index + 1]] = [newAccounts[index + 1], newAccounts[index]];
-      setBankAccounts(newAccounts);
+      try {
+        setError(null);
+        const db = getFirestore(app);
+        
+        // Swap the order by updating createdAt timestamps
+        const currentAccount = bankAccounts[index];
+        const nextAccount = bankAccounts[index + 1];
+        
+        const currentRef = doc(db, 'bankAccounts', currentAccount.id);
+        const nextRef = doc(db, 'bankAccounts', nextAccount.id);
+        
+        await Promise.all([
+          updateDoc(currentRef, { createdAt: nextAccount.createdAt }),
+          updateDoc(nextRef, { createdAt: currentAccount.createdAt })
+        ]);
+      } catch (error) {
+        console.error('Error moving account:', error);
+        setError('Failed to reorder accounts');
+      }
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8 px-2 sm:px-2 lg:px-2">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white shadow rounded-lg p-8">
+            <div className="flex items-center justify-center">
+              <FaSpinner className="animate-spin text-4xl text-indigo-600" />
+              <span className="ml-3 text-lg text-gray-600">Loading bank accounts...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-2 sm:px-2 lg:px-2">
@@ -156,30 +345,54 @@ const KYCPage = () => {
           <div className="px-6 py-4 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-gray-800">Bank Account Management</h2>
-              {!showAddForm && (
-                <button
-                  onClick={() => {
-                    setShowAddForm(true);
-                    setEditMode(null);
-                    setFormData({
-                      accountHolderName: '',
-                      accountNumber: '',
-                      bankName: '',
-                      branch: '',
-                      ifscCode: '',
-                      accountType: 'Checking'
-                    });
-                  }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center"
-                >
-                  <FaPlus className="mr-2" /> Add Bank Account
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {/* Debug info */}
+                <div className="text-xs text-gray-500">
+                  User: {currentUser?.uid ? 'Logged in' : 'Not logged in'}
+                  <br />
+                  Accounts: {bankAccounts.length}
+                </div>
+                {!showAddForm && (
+                  <button
+                    onClick={() => {
+                      setShowAddForm(true);
+                      setEditMode(null);
+                      setFormData({
+                        accountHolderName: '',
+                        accountNumber: '',
+                        bankName: '',
+                        branch: '',
+                        ifscCode: '',
+                        accountType: 'Checking'
+                      });
+                    }}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center"
+                  >
+                    <FaPlus className="mr-2" /> Add Bank Account
+                  </button>
+                )}
+              </div>
             </div>
             <p className="text-sm text-gray-500 mt-1">
               Manage your bank accounts for salary payments. You can add multiple accounts and set one as primary.
             </p>
           </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="px-6 py-3 bg-red-50 border-b border-red-200">
+              <div className="flex items-center">
+                <FaCheck className="text-red-400 mr-2" />
+                <span className="text-red-700">{error}</span>
+                <button
+                  onClick={() => setError(null)}
+                  className="ml-auto text-red-400 hover:text-red-600"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Add/Edit Form */}
           {showAddForm && (
@@ -272,13 +485,16 @@ const KYCPage = () => {
                     setEditMode(null);
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  disabled={saving}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={editMode ? handleUpdateAccount : handleAddAccount}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                  disabled={saving}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 flex items-center"
                 >
+                  {saving && <FaSpinner className="animate-spin mr-2" />}
                   {editMode ? 'Update Account' : 'Add Account'}
                 </button>
               </div>
@@ -368,7 +584,7 @@ const KYCPage = () => {
                       
                       <div className="mt-3 flex space-x-3">
                         <button
-                          onClick={() => handleEditAccount(account.id)}
+                          onClick={() => handleEditAccount(account)}
                           className="text-sm text-indigo-600 hover:text-indigo-900 flex items-center"
                         >
                           <FaEdit className="mr-1" /> Edit

@@ -420,6 +420,19 @@ export const RegistrationForm = () => {
                     )}
                 </button>
             </div>
+            
+            <div className="mt-4 text-center text-sm text-gray-600">
+                <p>
+                    Already have an account?{' '}
+                    <button
+                        type="button"
+                        onClick={() => navigate('/login')}
+                        className="font-medium text-green-600 hover:text-green-500"
+                    >
+                        Sign in
+                    </button>
+                </p>
+            </div>
         </form>
     );
 };

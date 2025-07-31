@@ -38,9 +38,9 @@ export class ScheduledService {
         await this.processPerformanceRewards();
       }
       
-      // Process scheduled payouts on 1st, 11th, 21st at 9 AM
-      if (hour === 9 && [1, 11, 21].includes(dayOfMonth)) {
-        await PayoutService.processScheduledPayouts();
+      // Process scheduled payouts on 2nd, 12th, 22nd at 9 AM
+      if (hour === 9 && [2, 12, 22].includes(dayOfMonth)) {
+        await PayoutService.generateAutomaticPayouts();
       }
       
       // Update user ranks daily at 2 AM
@@ -270,7 +270,7 @@ export class ScheduledService {
         case 'performanceRewards':
           return await this.processPerformanceRewards();
         case 'payouts':
-          return await PayoutService.processScheduledPayouts();
+          return await PayoutService.generateAutomaticPayouts();
         case 'updateRanks':
           return await this.updateUserRanks();
         case 'cleanup':
@@ -300,14 +300,14 @@ export class ScheduledService {
     
     // Calculate next payout date
     let nextPayout;
-    if (currentDay < 1) {
-      nextPayout = new Date(now.getFullYear(), now.getMonth(), 1, 9, 0, 0);
-    } else if (currentDay < 11) {
-      nextPayout = new Date(now.getFullYear(), now.getMonth(), 11, 9, 0, 0);
-    } else if (currentDay < 21) {
-      nextPayout = new Date(now.getFullYear(), now.getMonth(), 21, 9, 0, 0);
+    if (currentDay < 2) {
+      nextPayout = new Date(now.getFullYear(), now.getMonth(), 2, 9, 0, 0);
+    } else if (currentDay < 12) {
+      nextPayout = new Date(now.getFullYear(), now.getMonth(), 12, 9, 0, 0);
+    } else if (currentDay < 22) {
+      nextPayout = new Date(now.getFullYear(), now.getMonth(), 22, 9, 0, 0);
     } else {
-      nextPayout = new Date(now.getFullYear(), now.getMonth() + 1, 1, 9, 0, 0);
+      nextPayout = new Date(now.getFullYear(), now.getMonth() + 1, 2, 9, 0, 0);
     }
     
     // Calculate next performance reward processing (daily at 1 AM)

@@ -7,24 +7,24 @@ import {
   FaAward,
   FaTimes,
   FaBars,
-  FaBoxOpen
+  FaBoxOpen,
+  FaShieldAlt
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
+import { useUser } from "../../../context/UserContext";
 
 const AdminSidebar = ({ isSidebarOpen, toggleSidebar, isMobile, activeItem, setActiveItem }) => {
   const navigate = useNavigate();
-
-  const user = [
-    {name: "Rushi"}
-  ]
+  const { currentUser, logout } = useUser();
 
   const menuItems = [
     { name: 'Dashboard', icon: FaHome, path: '/admin' },
     { name: 'Payment Requests', icon: FaMoneyBill, path: '/admin/payment-requests' },
     { name: 'Network', icon: FaNetworkWired, path: '/admin/tree' },
     { name: 'Payouts', icon: FaMoneyBill, path: '/admin/payouts' },
+    { name: 'KYC Verification', icon: FaShieldAlt, path: '/admin/kyc-verification' },
     { name: 'Add Product', icon: FaBoxOpen, path: '/admin/add-product' },
-    { name: 'Profile', icon: FaUser, path: '/admin/profile' },
+    { name: 'Manage Products', icon: FaBoxOpen, path: '/admin/manage-products' },
   ];
 
   const handleNavigation = (path, name) => {
@@ -33,9 +33,14 @@ const AdminSidebar = ({ isSidebarOpen, toggleSidebar, isMobile, activeItem, setA
     if (isMobile) toggleSidebar();
   };
 
-  const handleLogout = () => {
-   
-    navigate("/login");
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate("/login");
+    } catch (error) {
+      console.error('Logout error:', error);
+      navigate("/login");
+    }
   };
 
   return (
@@ -96,12 +101,22 @@ const AdminSidebar = ({ isSidebarOpen, toggleSidebar, isMobile, activeItem, setA
 
       <div className="p-4 border-t border-green-700">
         <div className={`flex items-center ${isSidebarOpen ? 'justify-start' : 'justify-center'}`}>
-          <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center">
-            {user?.name?.charAt(0) || 'S'}
-          </div>
+          {currentUser?.profilePic ? (
+            <img 
+              src={currentUser.profilePic} 
+              alt={currentUser.name} 
+              className="w-8 h-8 rounded-full object-cover"
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center">
+              {currentUser?.name?.charAt(0)?.toUpperCase() || 'A'}
+            </div>
+          )}
           {isSidebarOpen && (
             <div className="ml-3">
-              <p className="text-sm font-medium">{user?.name || 'Student'}</p>
+              <p className="text-sm font-medium">{currentUser?.name || 'Admin'}</p>
+              <p className="text-xs text-green-200">{currentUser?.email || ''}</p>
+              <p className="text-xs text-green-200">Role: {currentUser?.role || 'Admin'}</p>
               <button onClick={handleLogout} className="flex items-center text-xs text-green-200 hover:text-white mt-1">
                 <FaSignOutAlt className="mr-1" />
                 Logout

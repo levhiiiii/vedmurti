@@ -48,6 +48,9 @@ const AdminDashboard = () => {
   // Real-time data state
   const [orders, setOrders] = useState([]);
   const [paymentRequests, setPaymentRequests] = useState([]);
+  const [incomeRecords, setIncomeRecords] = useState([]);
+  const [mlmUsers, setMlmUsers] = useState([]);
+  const [users, setUsers] = useState([]);
   const [networkSearch, setNetworkSearch] = useState('');
   const [networkSearchType, setNetworkSearchType] = useState('referralCode');
   const [networkTree, setNetworkTree] = useState(null);
@@ -67,22 +70,252 @@ const AdminDashboard = () => {
       const paymentData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPaymentRequests(paymentData);
     });
+    
+    // Listen to income records for actual affiliate revenue
+    const incomeRecordsQuery = query(collection(db, 'incomeRecords'), orderBy('createdAt', 'desc'));
+    const unsubscribeIncomeRecords = onSnapshot(incomeRecordsQuery, (snapshot) => {
+      const incomeData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setIncomeRecords(incomeData);
+    });
+    
+    // Listen to MLM users for fallback calculation
+    const mlmUsersQuery = query(collection(db, 'mlmUsers'));
+    const unsubscribeMlmUsers = onSnapshot(mlmUsersQuery, (snapshot) => {
+      const mlmData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setMlmUsers(mlmData);
+    });
+    
+    // Listen to users collection for affiliate data
+    const usersQuery = query(collection(db, 'users'));
+    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setUsers(usersData);
+    });
+    
     return () => {
       unsubscribeOrders();
       unsubscribePayments();
+      unsubscribeIncomeRecords();
+      unsubscribeMlmUsers();
+      unsubscribeUsers();
     };
   }, []);
   // Analytics calculations
   const totalSales = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
   const totalOrders = orders.length;
   const newCustomers = new Set(orders.map(o => o.userId)).size;
-  const revenue = paymentRequests.filter(r => r.status === 'approved').reduce((sum, r) => sum + (r.amount || 0), 0);
+  
+  // Calculate actual affiliate revenue from income records with fallback to MLM users
+  const incomeRecordsRevenue = incomeRecords.reduce((sum, record) => sum + (record.amount || 0), 0);
+  const mlmUsersRevenue = mlmUsers.reduce((sum, user) => sum + (user.totalIncome || 0), 0);
+  
+  // Calculate payment requests revenue as potential affiliate revenue
+  const paymentRequestsRevenue = paymentRequests.reduce((sum, r) => sum + (r.amount || 0), 0);
+  
+  // Debug logging
+  console.log('Income Records:', incomeRecords.length, 'Revenue:', incomeRecordsRevenue);
+  console.log('MLM Users:', mlmUsers.length, 'Revenue:', mlmUsersRevenue);
+  console.log('Payment Requests Revenue:', paymentRequestsRevenue);
+  
+  // Use income records if available, otherwise fallback to MLM users total income, or payment requests
+  const affiliateRevenue = incomeRecordsRevenue > 0 ? incomeRecordsRevenue : 
+                          mlmUsersRevenue > 0 ? mlmUsersRevenue : 
+                          paymentRequestsRevenue;
+  
+  // Calculate revenue by type
+  const promotionalIncome = incomeRecords.filter(r => r.type === 'promotional').reduce((sum, r) => sum + (r.amount || 0), 0);
+  const leadershipIncome = incomeRecords.filter(r => r.type === 'leadership').reduce((sum, r) => sum + (r.amount || 0), 0);
+  const rewardsIncome = incomeRecords.filter(r => r.type === 'reward' || r.type === 'performance_reward').reduce((sum, r) => sum + (r.amount || 0), 0);
+  
+  // Calculate payment requests revenue by status
+  const approvedPaymentRequestsRevenue = paymentRequests.filter(r => r.status === 'approved').reduce((sum, r) => sum + (r.amount || 0), 0);
+  const pendingPaymentRequestsRevenue = paymentRequests.filter(r => r.status === 'pending').reduce((sum, r) => sum + (r.amount || 0), 0);
+  
+  // Additional affiliate metrics
+  const totalPaymentRequests = paymentRequests.length;
+  const approvedPaymentRequests = paymentRequests.filter(r => r.status === 'approved').length;
+  const pendingPaymentRequests = paymentRequests.filter(r => r.status === 'pending').length;
+  const rejectedPaymentRequests = paymentRequests.filter(r => r.status === 'rejected').length;
+  
+  // Income records metrics
+  const totalIncomeRecords = incomeRecords.length;
+  const promotionalRecords = incomeRecords.filter(r => r.type === 'promotional').length;
+  const leadershipRecords = incomeRecords.filter(r => r.type === 'leadership').length;
+  const rewardsRecords = incomeRecords.filter(r => r.type === 'reward' || r.type === 'performance_reward').length;
+  
+  // Helper function to fetch all downlines for a user (same as Affiliate Dashboard)
+  const fetchAllDownlines = async (referralCode) => {
+    const usersRef = collection(db, 'users');
+    const q = query(
+      usersRef, 
+      where('referredBy', '==', referralCode),
+      where('affiliateStatus', '==', true),
+      where('paymentRequestStatus', '==', 'approved')
+    );
+    const querySnapshot = await getDocs(q);
+    let allDownlines = [];
+    for (const docSnap of querySnapshot.docs) {
+      const downline = docSnap.data();
+      allDownlines.push(downline);
+      // Recursively fetch this downline's downlines
+      const subDownlines = await fetchAllDownlines(downline.referralCode);
+      allDownlines = allDownlines.concat(subDownlines);
+    }
+    return allDownlines;
+  };
+
+  // Helper function to build tree for pair calculation (same as Affiliate Dashboard)
+  const buildTreeForPairs = async (referralCode, level = 0, maxLevel = 3) => {
+    if (level >= maxLevel) return null;
+    const userQuery = query(collection(db, 'users'), where('referralCode', '==', referralCode));
+    const userSnapshot = await getDocs(userQuery);
+    if (userSnapshot.empty) return null;
+    const userDoc = userSnapshot.docs[0];
+    const userData = userDoc.data();
+    
+    // Only include users with approved payment requests for pair matching
+    const isPaymentApproved = userData.affiliateStatus === true && userData.paymentRequestStatus === 'approved';
+    
+    let leftNode = null;
+    let rightNode = null;
+    
+    if (userData.leftDownLine) {
+      leftNode = await buildTreeForPairs(userData.leftDownLine, level + 1, maxLevel);
+    }
+    if (userData.rightDownLine) {
+      rightNode = await buildTreeForPairs(userData.rightDownLine, level + 1, maxLevel);
+    }
+    
+    return {
+      ...userData,
+      leftNode,
+      rightNode,
+      isPaymentApproved,
+      level
+    };
+  };
+
+  // Helper function to count pairs (same as Affiliate Dashboard)
+  const countPairs = (node) => {
+    if (!node) return 0;
+    // Only count as a pair if both left and right nodes exist AND both have approved payment requests
+    const isPair = node.leftNode && node.rightNode && 
+                   node.leftNode.isPaymentApproved && node.rightNode.isPaymentApproved ? 1 : 0;
+    return isPair + countPairs(node.leftNode) + countPairs(node.rightNode);
+  };
+
+  // Helper function to calculate promotional income (same as Affiliate Dashboard)
+  const calculatePromotionalIncome = (treeData) => {
+    if (!treeData) return 0;
+    
+    const countLeg = (node) => {
+      if (!node) return 0;
+      const currentUserCount = node.isPaymentApproved ? 1 : 0;
+      return currentUserCount + countLeg(node.leftNode) + countLeg(node.rightNode);
+    };
+    
+    let l = treeData.leftNode ? countLeg(treeData.leftNode) : 0;
+    let r = treeData.rightNode ? countLeg(treeData.rightNode) : 0;
+    
+    let pairs = 0;
+    while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+      if (l > r) {
+        l -= 2;
+        r -= 1;
+      } else {
+        l -= 1;
+        r -= 2;
+      }
+      pairs += 1;
+    }
+    
+    return pairs * 400; // ₹400 per pair
+  };
+
+  // Calculate top performers based on network size (downlines)
+  const [topPerformers, setTopPerformers] = useState([]);
+  
+  useEffect(() => {
+    const calculateTopPerformers = async () => {
+      const affiliateUsers = users.filter(user => user.role === 'affiliate' || user.affiliateStatus === true);
+      const performersData = [];
+      
+      for (const user of affiliateUsers) {
+        try {
+          // Calculate network size using the same logic as Affiliate Dashboard
+          const totalDownlines = await fetchAllDownlines(user.referralCode);
+          const directDownlines = users.filter(downline => 
+            downline.referredBy === user.referralCode &&
+            downline.affiliateStatus === true &&
+            downline.paymentRequestStatus === 'approved'
+          );
+          
+          // Calculate pairs and income using the same logic as Affiliate Dashboard
+          const treeData = await buildTreeForPairs(user.referralCode);
+          const calculatedPairsCount = countPairs(treeData);
+          const calculatedPromotionalIncome = calculatePromotionalIncome(treeData);
+          
+          // Calculate total income (promotional + leadership + rewards)
+          const leadershipIncome = user.leadershipIncome || user.leadershipEarnings || 0;
+          const rewardsIncome = user.rewardsIncome || user.rewardsEarnings || 0;
+          const totalIncome = calculatedPromotionalIncome + leadershipIncome + rewardsIncome;
+          
+          performersData.push({
+            id: user.id,
+            name: user.name || user.email || 'Unknown',
+            email: user.email,
+            referralCode: user.referralCode,
+            networkSize: totalDownlines.length,
+            directDownlines: directDownlines.length,
+            pairsCount: calculatedPairsCount,
+            totalIncome: totalIncome,
+            promotionalIncome: calculatedPromotionalIncome,
+            leadershipIncome: leadershipIncome,
+            rewardsIncome: rewardsIncome,
+            leftDownLine: user.leftDownLine,
+            rightDownLine: user.rightDownLine,
+            joinDate: user.joinDate || user.createdAt
+          });
+        } catch (error) {
+          console.error('Error calculating network for user:', user.referralCode, error);
+        }
+      }
+      
+      // Sort by network size and take top 10
+      const sortedPerformers = performersData
+        .sort((a, b) => b.networkSize - a.networkSize)
+        .slice(0, 10);
+      
+      setTopPerformers(sortedPerformers);
+    };
+    
+    if (users.length > 0) {
+      calculateTopPerformers();
+    }
+  }, [users]);
+    
+  // Debug logging for top performers
+  console.log('Users:', users.length);
+  console.log('Affiliate Users:', users.filter(user => user.role === 'affiliate' || user.affiliateStatus === true).length);
+  console.log('Top Performers:', topPerformers.length);
+  console.log('Top Performers Data:', topPerformers);
   // Chart data (example: monthly sales)
   const salesByMonth = Array(12).fill(0);
   orders.forEach(order => {
     if (order.createdAt && order.createdAt.toDate) {
       const month = order.createdAt.toDate().getMonth();
       salesByMonth[month] += order.totalAmount || 0;
+    }
+  });
+  
+  // Payment requests monthly data
+  const paymentRequestsByMonth = Array(12).fill(0);
+  const paymentRequestsCountByMonth = Array(12).fill(0);
+  paymentRequests.forEach(request => {
+    if (request.submittedAt && request.submittedAt.toDate) {
+      const month = request.submittedAt.toDate().getMonth();
+      paymentRequestsByMonth[month] += request.amount || 0;
+      paymentRequestsCountByMonth[month]++;
     }
   });
   const salesChartData = {
@@ -98,22 +331,53 @@ const AdminDashboard = () => {
       }
     ]
   };
-  // Revenue sources (example: payment requests vs orders)
+  // Revenue sources (example: product orders vs affiliate income)
   const revenueChartData = {
-    labels: ['Product Orders', 'Affiliate Payments'],
+    labels: ['Product Orders', 'Affiliate Income', 'Promotional Income', 'Leadership Income', 'Rewards Income'],
     datasets: [
       {
         label: 'Revenue',
-        data: [totalSales, revenue],
+        data: [totalSales, affiliateRevenue, promotionalIncome, leadershipIncome, rewardsIncome],
         backgroundColor: [
           'rgba(99, 102, 241, 0.7)',
-          'rgba(16, 185, 129, 0.7)'
+          'rgba(16, 185, 129, 0.7)',
+          'rgba(34, 197, 94, 0.7)',
+          'rgba(245, 158, 11, 0.7)',
+          'rgba(139, 92, 246, 0.7)'
         ],
         borderColor: [
           'rgba(99, 102, 241, 1)',
-          'rgba(16, 185, 129, 1)'
+          'rgba(16, 185, 129, 1)',
+          'rgba(34, 197, 94, 1)',
+          'rgba(245, 158, 11, 1)',
+          'rgba(139, 92, 246, 1)'
         ],
         borderWidth: 1
+      }
+    ]
+  };
+  
+  // Payment requests monthly chart data
+  const paymentRequestsChartData = {
+    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    datasets: [
+      {
+        label: 'Payment Amount (₹)',
+        data: paymentRequestsByMonth,
+        borderColor: 'rgba(59, 130, 246, 1)',
+        backgroundColor: 'rgba(59, 130, 246, 0.2)',
+        tension: 0.3,
+        fill: true,
+        yAxisID: 'y'
+      },
+      {
+        label: 'Number of Requests',
+        data: paymentRequestsCountByMonth,
+        borderColor: 'rgba(16, 185, 129, 1)',
+        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+        tension: 0.3,
+        fill: false,
+        yAxisID: 'y1'
       }
     ]
   };
@@ -197,7 +461,7 @@ const AdminDashboard = () => {
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-gray-900">MLM Admin Dashboard</h1>
+          <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
           <div className="flex items-center space-x-4">
             <div className="relative">
               <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -294,11 +558,34 @@ const AdminDashboard = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-gray-500">Affiliate Revenue</p>
-                    <h3 className="text-2xl font-bold mt-1">₹{revenue.toLocaleString()}</h3>
+                    <h3 className="text-2xl font-bold mt-1">₹{affiliateRevenue.toLocaleString()}</h3>
                   </div>
                   <div className="bg-purple-100 p-3 rounded-lg">
                     <FaMoneyBillWave className="text-purple-600 text-xl" />
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Requests Overview */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold mb-4">Payment Requests Overview</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <p className="text-gray-500 text-sm">Total Requests</p>
+                  <p className="text-xl font-bold">{totalPaymentRequests}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-gray-500 text-sm">Approved</p>
+                  <p className="text-xl font-bold text-green-600">{approvedPaymentRequests}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-gray-500 text-sm">Pending</p>
+                  <p className="text-xl font-bold text-yellow-600">{pendingPaymentRequests}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-gray-500 text-sm">Rejected</p>
+                  <p className="text-xl font-bold text-red-600">{rejectedPaymentRequests}</p>
                 </div>
               </div>
             </div>
@@ -373,6 +660,56 @@ const AdminDashboard = () => {
                     }}
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Payment Requests Monthly Chart */}
+            <div className="bg-white rounded-lg shadow p-4 md:p-6 overflow-x-auto">
+              <h3 className="font-semibold mb-4">Payment Requests - Monthly Trend</h3>
+              <div className="h-64 min-w-[320px]">
+                <Line 
+                  data={paymentRequestsChartData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: 'top',
+                      },
+                    },
+                    scales: {
+                      y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                          display: true,
+                          text: 'Amount (₹)'
+                        },
+                        grid: {
+                          color: 'rgba(0, 0, 0, 0.05)'
+                        }
+                      },
+                      y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                          display: true,
+                          text: 'Number of Requests'
+                        },
+                        grid: {
+                          drawOnChartArea: false,
+                        },
+                      },
+                      x: {
+                        grid: {
+                          color: 'rgba(0, 0, 0, 0.05)'
+                        }
+                      }
+                    }
+                  }}
+                />
               </div>
             </div>
 
@@ -750,34 +1087,66 @@ const AdminDashboard = () => {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sales</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recruits</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Referral Code</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Network Size</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pairs Matched</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Income</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {/* This section needs to be updated to use real data */}
-                  {/* For now, it will show a placeholder or empty */}
-                  <tr>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">1</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">Placeholder</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
-                        Bronze
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₹0</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">0</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₹0</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button className="text-indigo-600 hover:text-indigo-900 mr-3">View</button>
-                      <button className="text-gray-600 hover:text-gray-900">
-                        <FaEllipsisV />
-                      </button>
-                    </td>
-                  </tr>
+                  {topPerformers.length > 0 ? (
+                    topPerformers.map((performer, index) => (
+                      <tr key={performer.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          <div className="flex items-center">
+                            <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                              index === 0 ? 'bg-yellow-100 text-yellow-800' :
+                              index === 1 ? 'bg-gray-100 text-gray-800' :
+                              index === 2 ? 'bg-orange-100 text-orange-800' :
+                              'bg-blue-100 text-blue-800'
+                            }`}>
+                              {index + 1}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{performer.name}</div>
+                            <div className="text-sm text-gray-500">{performer.email}</div>
+                          </div>
+                        </td>
+                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
+                           {performer.referralCode || 'N/A'}
+                         </td>
+                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                           <span className="font-semibold text-blue-600">{performer.networkSize}</span>
+                         </td>
+                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                           <span className="font-semibold text-green-600">{performer.pairsCount}</span>
+                         </td>
+                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                           ₹{performer.totalIncome.toLocaleString()}
+                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button className="text-indigo-600 hover:text-indigo-900 mr-3">View</button>
+                          <button className="text-gray-600 hover:text-gray-900">
+                            <FaEllipsisV />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                                     ) : (
+                     <tr>
+                       <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
+                         <div className="flex flex-col items-center">
+                           <FaUsers className="text-4xl text-gray-300 mb-2" />
+                           <p className="text-lg font-medium">No performers found</p>
+                           <p className="text-sm">No affiliates have verified downlines yet.</p>
+                         </div>
+                       </td>
+                     </tr>
+                   )}
                 </tbody>
               </table>
             </div>

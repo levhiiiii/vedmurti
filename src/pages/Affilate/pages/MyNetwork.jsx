@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../../Firebase/firebase';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, onSnapshot, getDoc } from 'firebase/firestore';
 import { useUser } from '../../../context/UserContext';
-import { FaUser, FaUserCircle, FaUserSlash, FaUsers } from 'react-icons/fa';
+import { FaUser, FaUserCircle, FaUserSlash, FaUsers, FaGift, FaUserTie, FaBullhorn, FaLink } from 'react-icons/fa';
 import { PulseLoader } from 'react-spinners';
+import { Tooltip } from 'react-tooltip';
 
 const MyNetwork = () => {
     const [leftCount, setLeftCount] = useState(0);
@@ -11,6 +12,15 @@ const MyNetwork = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const { currentUser } = useUser();
+    const [income, setIncome] = useState({
+        promotionalIncome: 0,
+        leadershipIncome: 0,
+        rewardsIncome: 0,
+        pairsCount: 0,
+        qualifiedReferrals: 0,
+        eligibleForLeadership: false,
+        businessVolume: 0
+    });
 
     useEffect(() => {
         const countDownlines = async () => {
@@ -86,7 +96,268 @@ const MyNetwork = () => {
         };
 
         countDownlines();
+
+        // Real-time income updates
+        let unsubscribe = null;
+        if (currentUser?.uid) {
+            const mlmUserRef = doc(db, 'mlmUsers', currentUser.uid);
+            unsubscribe = onSnapshot(mlmUserRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    setIncome({
+                        promotionalIncome: data.promotionalIncome || 0,
+                        leadershipIncome: data.leadershipIncome || 0,
+                        rewardsIncome: data.rewardsIncome || 0,
+                        pairsCount: data.pairsCount || 0,
+                        qualifiedReferrals: data.qualifiedReferrals || 0,
+                        eligibleForLeadership: data.eligibleForLeadership || false,
+                        businessVolume: (data.leftTeamTurnover || 0) + (data.rightTeamTurnover || 0)
+                    });
+                }
+            });
+        }
+        return () => unsubscribe && unsubscribe();
     }, [currentUser]);
+
+    // Family Tree rendering logic using leftDownLine/rightDownLine from 'users' collection
+    const [treeData, setTreeData] = useState(null);
+    useEffect(() => {
+        const fetchTree = async () => {
+            if (!currentUser?.referralCode) return;
+            // Recursive function to build tree from 'users' collection
+            const buildTree = async (referralCode, level = 0, maxLevel = 3) => {
+                if (level >= maxLevel) return null;
+                const userQuery = query(collection(db, 'users'), where('referralCode', '==', referralCode));
+                const userSnapshot = await getDocs(userQuery);
+                if (userSnapshot.empty) return null;
+                const userDoc = userSnapshot.docs[0];
+                const userData = userDoc.data();
+                let leftNode = null, rightNode = null;
+                if (userData.leftDownLine) leftNode = await buildTree(userData.leftDownLine, level + 1, maxLevel);
+                if (userData.rightDownLine) rightNode = await buildTree(userData.rightDownLine, level + 1, maxLevel);
+                return {
+                    id: userDoc.id,
+                    name: userData.name || 'Unknown',
+                    referralCode: userData.referralCode,
+                    email: userData.email,
+                    joinDate: userData.joinDate,
+                    leftNode,
+                    rightNode,
+                    level
+                };
+            };
+            const tree = await buildTree(currentUser.referralCode);
+            setTreeData(tree);
+        };
+        fetchTree();
+    }, [currentUser]);
+
+    // Count matched pairs (binary legs completed) for user and all downlines
+    const [totalPairs, setTotalPairs] = useState(0);
+    useEffect(() => {
+        // Recursively count pairs in the family tree
+        const countPairs = (node) => {
+            if (!node) return 0;
+            // A pair is matched if both left and right downlines exist
+            const isPair = node.leftNode && node.rightNode ? 1 : 0;
+            return isPair + countPairs(node.leftNode) + countPairs(node.rightNode);
+        };
+        setTotalPairs(countPairs(treeData));
+    }, [treeData]);
+
+    // Calculate promotional income based on matched pairs (2:1 or 1:2 binary plan)
+    const [calculatedPromotionalIncome, setCalculatedPromotionalIncome] = useState(0);
+    useEffect(() => {
+        if (!treeData) {
+            setCalculatedPromotionalIncome(0);
+            return;
+        }
+        // Only calculate for the root user
+        const root = treeData;
+        // Count left and right downlines recursively
+        const countLeg = (node) => {
+            if (!node) return 0;
+            return 1 + countLeg(node.leftNode) + countLeg(node.rightNode);
+        };
+        const leftCount = root.leftNode ? countLeg(root.leftNode) : 0;
+        const rightCount = root.rightNode ? countLeg(root.rightNode) : 0;
+        let pairs = 0;
+        let l = leftCount;
+        let r = rightCount;
+        // 2:1 or 1:2 matching logic
+        while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+            if (l > r) {
+                l -= 2;
+                r -= 1;
+            } else {
+                l -= 1;
+                r -= 2;
+            }
+            pairs += 1;
+        }
+        setCalculatedPromotionalIncome(pairs * 400);
+    }, [treeData]);
+
+    // Calculate leadership income: 10% of total downline promotional income if at least 10 direct referrals
+    const [calculatedLeadershipIncome, setCalculatedLeadershipIncome] = useState(0);
+    const [directReferralCount, setDirectReferralCount] = useState(0);
+    useEffect(() => {
+        if (!treeData || !currentUser?.referralCode) {
+            setCalculatedLeadershipIncome(0);
+            setDirectReferralCount(0);
+            return;
+        }
+        // Count direct referrals (downlines with referredBy == currentUser.referralCode)
+        const fetchDirectReferrals = async () => {
+            const q = query(collection(db, 'users'), where('referredBy', '==', currentUser.referralCode));
+            const snapshot = await getDocs(q);
+            setDirectReferralCount(snapshot.size);
+        };
+        fetchDirectReferrals();
+        // Recursively sum promotional income of all downlines
+        const sumDownlinePromotionalIncome = (node) => {
+            if (!node) return 0;
+            // Assume each downline's promotional income is calculated as in the previous card
+            // (pairs * 400 for that node)
+            const countLeg = (n) => (n ? 1 + countLeg(n.leftNode) + countLeg(n.rightNode) : 0);
+            let l = node.leftNode ? countLeg(node.leftNode) : 0;
+            let r = node.rightNode ? countLeg(node.rightNode) : 0;
+            let pairs = 0;
+            while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+                if (l > r) {
+                    l -= 2;
+                    r -= 1;
+                } else {
+                    l -= 1;
+                    r -= 2;
+                }
+                pairs += 1;
+            }
+            // Leadership income is only from downlines, not the root user
+            return (pairs * 400) + sumDownlinePromotionalIncome(node.leftNode) + sumDownlinePromotionalIncome(node.rightNode);
+        };
+        // Leadership income is 10% of total downline promotional income (excluding root)
+        if (directReferralCount >= 10) {
+            let totalDownlineIncome = 0;
+            if (treeData.leftNode) totalDownlineIncome += sumDownlinePromotionalIncome(treeData.leftNode);
+            if (treeData.rightNode) totalDownlineIncome += sumDownlinePromotionalIncome(treeData.rightNode);
+            setCalculatedLeadershipIncome(Math.floor(totalDownlineIncome * 0.10));
+        } else {
+            setCalculatedLeadershipIncome(0);
+        }
+    }, [treeData, currentUser]);
+
+    // Calculate rewards based on pairs (reward slabs)
+    const [calculatedRewards, setCalculatedRewards] = useState({ total: 0, pairs: 0, slab: '' });
+    useEffect(() => {
+        if (!treeData) {
+            setCalculatedRewards({ total: 0, pairs: 0, slab: '' });
+            return;
+        }
+        // Count pairs for the root user (same as promotional income logic)
+        const root = treeData;
+        const countLeg = (node) => (node ? 1 + countLeg(node.leftNode) + countLeg(node.rightNode) : 0);
+        let l = root.leftNode ? countLeg(root.leftNode) : 0;
+        let r = root.rightNode ? countLeg(root.rightNode) : 0;
+        let pairs = 0;
+        while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+            if (l > r) {
+                l -= 2;
+                r -= 1;
+            } else {
+                l -= 1;
+                r -= 2;
+            }
+            pairs += 1;
+        }
+        // Calculate rewards
+        let total = 0;
+        let slab = '';
+        if (pairs >= 500) {
+            total += 25000;
+            slab = 'First 500 pairs: ₹25,000 bonus';
+            if (pairs >= 600) {
+                total += 5000;
+                slab = 'Next 100 pairs: ₹5,000 bonus';
+            }
+        } else if (pairs > 0) {
+            slab = 'No reward yet (need 500 pairs)';
+        }
+        setCalculatedRewards({ total, pairs, slab });
+    }, [treeData]);
+
+    const renderTreeNode = (node) => {
+        if (!node) {
+            return (
+                <div className="flex flex-col items-center">
+                    <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center shadow-sm">
+                        <FaUserSlash className="text-gray-400 text-xl" />
+                    </div>
+                    <span className="text-xs text-gray-500 mt-1">Empty</span>
+                </div>
+            );
+        }
+        return (
+            <div className="flex flex-col items-center group" data-tooltip-id={`ftree-${node.id}`}> 
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center shadow-md ${node.level === 0 ? 'bg-gradient-to-br from-blue-100 to-blue-50 border-2 border-blue-300' : 'bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200'} cursor-pointer`}>
+                    {node.level === 0 ? <FaUserCircle className="text-blue-500 text-2xl" /> : <FaUser className="text-gray-600 text-xl" />}
+                </div>
+                <span className="text-xs font-medium mt-1 text-center max-w-[80px] truncate">{node.name}</span>
+                <Tooltip id={`ftree-${node.id}`} className="z-50">
+                    <div className="bg-white p-2 rounded-lg shadow-lg max-w-xs">
+                        <div className="font-bold text-blue-600">{node.name}</div>
+                        <div className="text-xs text-gray-500">{node.email}</div>
+                        <div className="text-xs text-gray-500">ID: {node.referralCode}</div>
+                        {node.joinDate && <div className="text-xs text-gray-400 mt-1">Joined: {new Date(node.joinDate.seconds * 1000).toLocaleDateString()}</div>}
+                    </div>
+                </Tooltip>
+            </div>
+        );
+    };
+
+    // Enhanced Family Tree rendering to match Tree tab visuals
+    const renderFamilyTree = (node) => {
+        if (!node) return (
+            <div className="text-center text-gray-400 py-8">No downlines found for your account.</div>
+        );
+        return (
+            <div className="flex flex-col items-center">
+                {/* Node */}
+                <div className="relative">{renderTreeNode(node)}
+                    {(node.leftNode || node.rightNode) && (
+                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0.5 h-6 bg-gradient-to-b from-gray-300 to-transparent"></div>
+                    )}
+                </div>
+                {/* Downlines */}
+                {(node.leftNode || node.rightNode) && (
+                    <div className="flex justify-center space-x-16 mt-6">
+                        {/* Left Downline */}
+                        <div className="flex flex-col items-center relative">
+                            {node.leftNode && (
+                                <>
+                                    <div className="absolute top-0 left-1/2 w-8 h-6 border-l-2 border-t-2 border-gray-300 rounded-tl-lg"></div>
+                                    <div className="mt-6">{renderFamilyTree(node.leftNode)}</div>
+                                </>
+                            )}
+                        </div>
+                        {/* Right Downline */}
+                        <div className="flex flex-col items-center relative">
+                            {node.rightNode && (
+                                <>
+                                    <div className="absolute top-0 right-1/2 w-8 h-6 border-r-2 border-t-2 border-gray-300 rounded-tr-lg"></div>
+                                    <div className="mt-6">{renderFamilyTree(node.rightNode)}</div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    // Calculate potential pairs and income
+    const potentialPairs = Math.min(leftCount, rightCount);
+    const potentialPromotionalIncome = potentialPairs * 400;
 
     if (loading) {
         return (
@@ -114,7 +385,8 @@ const MyNetwork = () => {
         <div className="container mx-auto px-4 py-8">
             <h1 className="text-3xl font-bold text-gray-800 mb-6">My Network Summary</h1>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {/* Top Stat Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-8">
                 <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-6 rounded-xl border border-blue-200">
                     <div className="flex items-center justify-between">
                         <h3 className="font-medium text-blue-800">Total Network</h3>
@@ -153,7 +425,44 @@ const MyNetwork = () => {
                     </p>
                     <p className="text-sm text-purple-500 mt-1">Members in your right leg</p>
                 </div>
+                {/* Matched Pairs Card */}
+                <div className="bg-gradient-to-br from-cyan-500 to-cyan-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow flex flex-col justify-between">
+                    <div className="flex items-center gap-2 mb-2">
+                        <FaLink className="text-2xl" />
+                        <span className="font-bold text-lg">Matched Pairs</span>
+                    </div>
+                    <p className="text-3xl font-bold mb-1">{totalPairs}</p>
+                    <p className="text-sm text-cyan-100">Binary legs completed (you + all downlines)</p>
+                </div>
+                {/* Calculated Promotional Income Card */}
+                <div className="bg-gradient-to-br from-green-500 to-green-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow flex flex-col justify-between">
+                    <div className="flex items-center gap-2 mb-2">
+                        <FaBullhorn className="text-2xl" />
+                        <span className="font-bold text-lg">Calculated Promotional Income</span>
+                    </div>
+                    <p className="text-3xl font-bold mb-1">₹{calculatedPromotionalIncome}</p>
+                    <p className="text-sm text-green-100">Based on matched pairs (2:1 or 1:2)</p>
+                </div>
+                {/* Calculated Leadership Income Card */}
+                <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow flex flex-col justify-between">
+                    <div className="flex items-center gap-2 mb-2">
+                        <FaUserTie className="text-2xl" />
+                        <span className="font-bold text-lg">Calculated Leadership Income</span>
+                    </div>
+                    <p className="text-3xl font-bold mb-1">₹{calculatedLeadershipIncome}</p>
+                    <p className="text-sm text-indigo-100">{directReferralCount >= 10 ? '10% of downline promotional income' : 'Requires 10 direct referrals'}</p>
+                </div>
+                {/* Calculated Rewards Card */}
+                <div className="bg-gradient-to-br from-pink-500 to-pink-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow flex flex-col justify-between">
+                    <div className="flex items-center gap-2 mb-2">
+                        <FaGift className="text-2xl" />
+                        <span className="font-bold text-lg">Calculated Rewards</span>
+                    </div>
+                    <p className="text-3xl font-bold mb-1">₹{calculatedRewards.total}</p>
+                    <p className="text-sm text-pink-100">Pairs: {calculatedRewards.pairs} | {calculatedRewards.slab}</p>
+                </div>
             </div>
+            
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                 <h2 className="text-xl font-semibold text-gray-700 mb-4">Network Structure</h2>
@@ -185,6 +494,13 @@ const MyNetwork = () => {
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+            {/* Family Tree Section */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mt-8">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Family Tree (Downlines Network Structure)</h3>
+                <div className="overflow-auto py-4">
+                    <div className="min-w-max mx-auto">{renderFamilyTree(treeData)}</div>
                 </div>
             </div>
         </div>

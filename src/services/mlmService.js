@@ -1061,7 +1061,19 @@ export class MLMService {
         where('createdAt', '>=', todayStart)
       );
       const todayIncomeSnapshot = await getDocs(todayIncomeQuery);
-      const todayIncome = todayIncomeSnapshot.docs.reduce((sum, doc) => sum + doc.data().amount, 0);
+      let todayIncome = todayIncomeSnapshot.docs.reduce((sum, doc) => sum + doc.data().amount, 0);
+      
+      // If no income records for today, use daily income from MLM data
+      if (todayIncome === 0) {
+        const lastReset = mlmData.lastDailyReset?.toDate() || new Date(0);
+        const hoursDiff = (today - lastReset) / (1000 * 60 * 60);
+        const shouldReset = hoursDiff >= 24;
+        
+        if (!shouldReset) {
+          // Use the daily income from MLM data if it hasn't been reset today
+          todayIncome = mlmData.dailyIncome || 0;
+        }
+      }
 
       // Calculate monthly income
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);

@@ -1,13 +1,14 @@
 // Enhanced Affilate Affiliate Dashboard
 import { useEffect, useState } from 'react';
-import { getFirestore, collection, query, where, getDocs, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, collection, query, where, getDocs, doc, getDoc, onSnapshot, orderBy } from 'firebase/firestore';
 import { app } from '../../../Firebase/firebase';
 import { 
   FaUsers, FaRupeeSign, FaChartLine, FaCopy, FaShareAlt, FaRegClock, 
   FaBullhorn, FaUserTie, FaGift, FaFire, FaTrophy, FaCalendarCheck,
   FaArrowUp, FaArrowDown, FaEye, FaDownload, FaCrown, FaStar,
   FaNetworkWired, FaHandHoldingUsd, FaMedal, FaChartBar, FaCoins,
-  FaCalendarAlt, FaClock, FaCheckCircle, FaExclamationTriangle
+  FaCalendarAlt, FaClock, FaCheckCircle, FaExclamationTriangle, FaLink,
+  FaCheck
 } from 'react-icons/fa';
 import { 
   MdTrendingUp, MdTrendingDown, MdAccountBalance, MdTimeline,
@@ -26,10 +27,15 @@ import IncomeService from '../../../services/incomeService';
 import PayoutService from '../../../services/payoutService';
 import RewardsService from '../../../services/rewardsService';
 
-// Helper to recursively fetch all downlines for a user
+// Helper to recursively fetch all downlines for a user - Only approved users
 const fetchAllDownlines = async (db, referralCode) => {
   const usersRef = collection(db, 'users');
-  const q = query(usersRef, where('referredBy', '==', referralCode));
+  const q = query(
+    usersRef, 
+    where('referredBy', '==', referralCode),
+    where('affiliateStatus', '==', true),
+    where('paymentRequestStatus', '==', 'approved')
+  );
   const querySnapshot = await getDocs(q);
   let allDownlines = [];
   for (const docSnap of querySnapshot.docs) {
@@ -67,6 +73,275 @@ export default function AffiliateDashboard({ userId }) {
   const [totalDownlines, setTotalDownlines] = useState([]);
   const [totalDownlineCount, setTotalDownlineCount] = useState(0);
   const [directDownlineCount, setDirectDownlineCount] = useState(0);
+  const [todayReferrals, setTodayReferrals] = useState(0);
+  // State for calculated incomes (same as MyNetwork)
+  const [calculatedPromotionalIncome, setCalculatedPromotionalIncome] = useState(0);
+  const [calculatedLeadershipIncome, setCalculatedLeadershipIncome] = useState(0);
+  const [calculatedRewards, setCalculatedRewards] = useState({ total: 0, pairs: 0, slab: '' });
+  const [totalPairs, setTotalPairs] = useState(0);
+  const [directReferralCount, setDirectReferralCount] = useState(0);
+  const [treeData, setTreeData] = useState(null);
+  // State for bank accounts
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [bankAccountsLoading, setBankAccountsLoading] = useState(true);
+  // State for total income
+  const [totalIncome, setTotalIncome] = useState(0);
+
+  // Recursive function to build tree from 'users' collection (same as MyNetwork)
+  const buildTree = async (referralCode, level = 0, maxLevel = 3) => {
+    if (level >= maxLevel) return null;
+    const db = getFirestore(app);
+    const userQuery = query(collection(db, 'users'), where('referralCode', '==', referralCode));
+    const userSnapshot = await getDocs(userQuery);
+    if (userSnapshot.empty) return null;
+    const userDoc = userSnapshot.docs[0];
+    const userData = userDoc.data();
+    
+    // Only include users with approved payment requests for pair matching
+    const isPaymentApproved = userData.affiliateStatus === true && userData.paymentRequestStatus === 'approved';
+    
+    let leftNode = null, rightNode = null;
+    if (userData.leftDownLine) leftNode = await buildTree(userData.leftDownLine, level + 1, maxLevel);
+    if (userData.rightDownLine) rightNode = await buildTree(userData.rightDownLine, level + 1, maxLevel);
+    
+    return {
+      id: userDoc.id,
+      name: userData.name || 'Unknown',
+      referralCode: userData.referralCode,
+      email: userData.email,
+      joinDate: userData.joinDate,
+      affiliateStatus: userData.affiliateStatus,
+      paymentRequestStatus: userData.paymentRequestStatus,
+      isPaymentApproved,
+      leftNode,
+      rightNode,
+      level
+    };
+  };
+
+  // Build tree for income calculations
+  useEffect(() => {
+    const fetchTree = async () => {
+      if (!user?.referralCode) {
+        console.log('No user referral code available');
+        return;
+      }
+      console.log('Building tree for referral code:', user.referralCode);
+      const tree = await buildTree(user.referralCode);
+      console.log('Tree built:', tree);
+      setTreeData(tree);
+    };
+    fetchTree();
+  }, [user]);
+
+  // Count matched pairs (same as MyNetwork) - Only count pairs for approved payment requests
+  useEffect(() => {
+    const countPairs = (node) => {
+      if (!node) return 0;
+      // Only count as a pair if both left and right nodes exist AND both have approved payment requests
+      const isPair = node.leftNode && node.rightNode && 
+                     node.leftNode.isPaymentApproved && node.rightNode.isPaymentApproved ? 1 : 0;
+      return isPair + countPairs(node.leftNode) + countPairs(node.rightNode);
+    };
+    setTotalPairs(countPairs(treeData));
+  }, [treeData]);
+
+  // Calculate promotional income (same as MyNetwork) - Only count approved users
+  useEffect(() => {
+    if (!treeData) {
+      console.log('No tree data available for promotional income calculation');
+      setCalculatedPromotionalIncome(0);
+      return;
+    }
+    console.log('Calculating promotional income for tree:', treeData);
+    const root = treeData;
+    // Only count legs from users with approved payment requests
+    const countLeg = (node) => {
+      if (!node) return 0;
+      const currentUserCount = node.isPaymentApproved ? 1 : 0;
+      return currentUserCount + countLeg(node.leftNode) + countLeg(node.rightNode);
+    };
+    let l = root.leftNode ? countLeg(root.leftNode) : 0;
+    let r = root.rightNode ? countLeg(root.rightNode) : 0;
+    console.log('Left leg count (approved only):', l, 'Right leg count (approved only):', r);
+    let pairs = 0;
+    while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+      if (l > r) {
+        l -= 2;
+        r -= 1;
+      } else {
+        l -= 1;
+        r -= 2;
+      }
+      pairs += 1;
+    }
+    console.log('Calculated pairs (approved only):', pairs, 'Promotional income:', pairs * 400);
+    setCalculatedPromotionalIncome(pairs * 400);
+  }, [treeData]);
+
+  // Calculate leadership income (same as MyNetwork) - Only count approved users
+  useEffect(() => {
+    if (!treeData || !user?.referralCode) {
+      setCalculatedLeadershipIncome(0);
+      return;
+    }
+    
+    const calculateLeadershipIncome = async () => {
+      // Fetch direct referrals count (only approved users)
+      const db = getFirestore(app);
+      const q = query(
+        collection(db, 'users'), 
+        where('referredBy', '==', user.referralCode),
+        where('affiliateStatus', '==', true),
+        where('paymentRequestStatus', '==', 'approved')
+      );
+      const snapshot = await getDocs(q);
+      const directCount = snapshot.size;
+      setDirectReferralCount(directCount);
+      
+      if (directCount >= 10) {
+        const sumDownlinePromotionalIncome = (node) => {
+          if (!node) return 0;
+          // Only count legs from users with approved payment requests
+          const countLeg = (n) => {
+            if (!n) return 0;
+            const currentUserCount = n.isPaymentApproved ? 1 : 0;
+            return currentUserCount + countLeg(n.leftNode) + countLeg(n.rightNode);
+          };
+          let l = node.leftNode ? countLeg(node.leftNode) : 0;
+          let r = node.rightNode ? countLeg(node.rightNode) : 0;
+          let pairs = 0;
+          while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+            if (l > r) {
+              l -= 2;
+              r -= 1;
+            } else {
+              l -= 1;
+              r -= 2;
+            }
+            pairs += 1;
+          }
+          return (pairs * 400) + sumDownlinePromotionalIncome(node.leftNode) + sumDownlinePromotionalIncome(node.rightNode);
+        };
+        
+        let totalDownlineIncome = 0;
+        if (treeData.leftNode) totalDownlineIncome += sumDownlinePromotionalIncome(treeData.leftNode);
+        if (treeData.rightNode) totalDownlineIncome += sumDownlinePromotionalIncome(treeData.rightNode);
+        setCalculatedLeadershipIncome(Math.floor(totalDownlineIncome * 0.10));
+      } else {
+        setCalculatedLeadershipIncome(0);
+      }
+    };
+    
+    calculateLeadershipIncome();
+  }, [treeData, user]);
+
+  // Calculate rewards (same as MyNetwork) - Only count approved users
+  useEffect(() => {
+    if (!treeData) {
+      setCalculatedRewards({ total: 0, pairs: 0, slab: '' });
+      return;
+    }
+    const root = treeData;
+    // Only count legs from users with approved payment requests
+    const countLeg = (node) => {
+      if (!node) return 0;
+      const currentUserCount = node.isPaymentApproved ? 1 : 0;
+      return currentUserCount + countLeg(node.leftNode) + countLeg(node.rightNode);
+    };
+    let l = root.leftNode ? countLeg(root.leftNode) : 0;
+    let r = root.rightNode ? countLeg(root.rightNode) : 0;
+    let pairs = 0;
+    while ((l >= 2 && r >= 1) || (l >= 1 && r >= 2)) {
+      if (l > r) {
+        l -= 2;
+        r -= 1;
+      } else {
+        l -= 1;
+        r -= 2;
+      }
+      pairs += 1;
+    }
+    let total = 0;
+    let slab = '';
+    if (pairs >= 500) {
+      total += 25000;
+      slab = 'First 500 pairs: ₹25,000 bonus';
+      if (pairs >= 600) {
+        total += 5000;
+        slab = 'Next 100 pairs: ₹5,000 bonus';
+      }
+    } else if (pairs > 0) {
+      slab = 'No reward yet (need 500 pairs)';
+    }
+    setCalculatedRewards({ total, pairs, slab });
+  }, [treeData]);
+
+  // Calculate total income from all sources
+  useEffect(() => {
+    const total = calculatedPromotionalIncome + calculatedLeadershipIncome + calculatedRewards.total;
+    setTotalIncome(total);
+  }, [calculatedPromotionalIncome, calculatedLeadershipIncome, calculatedRewards.total]);
+
+  // Fetch bank accounts for payout verification
+  useEffect(() => {
+    if (!userId) {
+      setBankAccountsLoading(false);
+      return;
+    }
+
+    const db = getFirestore(app);
+    const bankAccountsRef = collection(db, 'bankAccounts');
+    const q = query(
+      bankAccountsRef, 
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const accounts = [];
+      snapshot.forEach((doc) => {
+        accounts.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+      setBankAccounts(accounts);
+      setBankAccountsLoading(false);
+    }, (error) => {
+      console.error('Error fetching bank accounts:', error);
+      
+      // If it's an index error, try without orderBy
+      if (error.code === 'failed-precondition') {
+        console.log('Index not available, trying without orderBy');
+        const simpleQuery = query(
+          bankAccountsRef, 
+          where('userId', '==', userId)
+        );
+        
+        const simpleUnsubscribe = onSnapshot(simpleQuery, (snapshot) => {
+          const accounts = [];
+          snapshot.forEach((doc) => {
+            accounts.push({
+              id: doc.id,
+              ...doc.data()
+            });
+          });
+          setBankAccounts(accounts);
+          setBankAccountsLoading(false);
+        }, (simpleError) => {
+          console.error('Error with simple query:', simpleError);
+          setBankAccountsLoading(false);
+        });
+        
+        return () => simpleUnsubscribe();
+      } else {
+        setBankAccountsLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   // Comprehensive Data Fetching
   useEffect(() => {
@@ -110,6 +385,8 @@ export default function AffiliateDashboard({ userId }) {
         // Fetch income data
         try {
           const incomeSummary = await IncomeService.getUserIncomeSummary(userId);
+          console.log('Income summary received:', incomeSummary);
+          console.log('Today income from summary:', incomeSummary?.todayIncome);
           setIncomeData(incomeSummary);
         } catch (incomeError) {
           console.log('Income data not found');
@@ -155,12 +432,14 @@ export default function AffiliateDashboard({ userId }) {
           console.log('Rank info not found');
         }
 
-        // Fetch referrals (direct downlines)
+        // Fetch referrals (direct downlines) - Only approved users
         let referralsData = [];
         if (userData.referralCode) {
           const q = query(
             collection(db, 'users'),
-            where('referredBy', '==', userData.referralCode)
+            where('referredBy', '==', userData.referralCode),
+            where('affiliateStatus', '==', true),
+            where('paymentRequestStatus', '==', 'approved')
           );
           const querySnapshot = await getDocs(q);
           referralsData = querySnapshot.docs.map(doc => ({
@@ -168,10 +447,20 @@ export default function AffiliateDashboard({ userId }) {
             ...doc.data()
           }));
           setReferrals(referralsData);
+          
+          // Calculate today's referrals
+          const today = new Date();
+          const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          const todayReferralsCount = referralsData.filter(ref => {
+            const joinDate = ref.joinDate?.toDate() || ref.createdAt?.toDate() || new Date(0);
+            return joinDate >= todayStart;
+          }).length;
+          setTodayReferrals(todayReferralsCount);
+          
           // Calculate sell count through downlines (placeholder)
           setSellCount(referralsData.filter(ref => ref.affiliateStatus).length * 2);
         }
-        // Fetch all downlines recursively
+        // Fetch all downlines recursively - Only approved users
         let totalDownlines = [];
         if (userData.referralCode) {
           totalDownlines = await fetchAllDownlines(db, userData.referralCode);
@@ -411,6 +700,33 @@ export default function AffiliateDashboard({ userId }) {
   return (
     <div className="bg-gradient-to-br from-blue-50 via-white to-purple-50 min-h-screen">
       <div className="max-w-7xl mx-auto p-4 md:p-6">
+        {/* Bank Account Alert Ribbon */}
+        {!bankAccountsLoading && bankAccounts.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 bg-gradient-to-r from-red-500 to-red-600 text-white p-4 rounded-lg shadow-lg border-l-4 border-red-700"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <FaExclamationTriangle className="text-2xl animate-pulse" />
+                <div>
+                  <h3 className="font-bold text-lg">⚠️ Bank Account Required</h3>
+                  <p className="text-red-100 text-sm">
+                    No bank account found. Payouts will not be generated until you add your bank details.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => window.location.href = '/affilate-dashboard/kyc'}
+                className="px-4 py-2 bg-white text-red-600 rounded-md hover:bg-red-50 transition-colors font-semibold text-sm"
+              >
+                Add Bank Account
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {/* Enhanced Header Section */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
           <div className="flex-1">
@@ -466,7 +782,111 @@ export default function AffiliateDashboard({ userId }) {
           </div>
         </div>
 
-        {/* Removed navigation bar with Overview, Income, Team, Analytics */}
+        {/* Total Income Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8 bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-600 p-6 rounded-2xl shadow-xl text-white"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-white/20 rounded-xl">
+                <FaRupeeSign className="text-3xl" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold">Total Income</h2>
+                <p className="text-purple-100 text-sm">Combined earnings from all sources</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-4xl font-bold mb-1">₹{totalIncome.toFixed(2)}</div>
+              <div className="text-purple-200 text-sm">Real-time calculated</div>
+            </div>
+          </div>
+          
+          {/* Income Breakdown */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white/10 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-purple-100 text-sm">Promotional</span>
+                <span className="font-semibold">₹{calculatedPromotionalIncome.toFixed(2)}</span>
+              </div>
+              <div className="w-full bg-white/20 rounded-full h-2">
+                <div 
+                  className="bg-green-400 rounded-full h-2 transition-all duration-300"
+                  style={{ width: `${totalIncome > 0 ? (calculatedPromotionalIncome / totalIncome) * 100 : 0}%` }}
+                ></div>
+              </div>
+            </div>
+            
+            <div className="bg-white/10 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-purple-100 text-sm">Leadership</span>
+                <span className="font-semibold">₹{calculatedLeadershipIncome.toFixed(2)}</span>
+              </div>
+              <div className="w-full bg-white/20 rounded-full h-2">
+                <div 
+                  className="bg-blue-400 rounded-full h-2 transition-all duration-300"
+                  style={{ width: `${totalIncome > 0 ? (calculatedLeadershipIncome / totalIncome) * 100 : 0}%` }}
+                ></div>
+              </div>
+            </div>
+            
+            <div className="bg-white/10 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-purple-100 text-sm">Rewards</span>
+                <span className="font-semibold">₹{calculatedRewards.total.toFixed(2)}</span>
+              </div>
+              <div className="w-full bg-white/20 rounded-full h-2">
+                <div 
+                  className="bg-pink-400 rounded-full h-2 transition-all duration-300"
+                  style={{ width: `${totalIncome > 0 ? (calculatedRewards.total / totalIncome) * 100 : 0}%` }}
+                ></div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Income Plan Overview Section */}
+        <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Promotional Income */}
+          <div className="bg-gradient-to-br from-green-400 to-green-600 p-5 rounded-2xl shadow-lg text-white flex flex-col gap-2">
+            <div className="flex items-center gap-2 mb-2">
+              <FaBullhorn className="text-2xl" />
+              <span className="font-bold text-lg">Promotional Income</span>
+            </div>
+            <p className="text-sm">Binary plan (Left & Right legs). Pair matching allowed: <b>2:1</b> or <b>1:2</b>. <br/> <b>₹400 per pair</b>. Daily cap: <b>400 pairs</b> (₹2000/day).<br/>Payouts: <b>2nd, 12th, 22nd</b> monthly.</p>
+            <div className="flex flex-wrap gap-2 mt-2 text-xs">
+              <span className="bg-white/20 px-2 py-1 rounded">Pair: L+R</span>
+              <span className="bg-white/20 px-2 py-1 rounded">₹400/pair</span>
+              <span className="bg-white/20 px-2 py-1 rounded">Max 400 pairs/day</span>
+            </div>
+          </div>
+          {/* Leadership Income */}
+          <div className="bg-gradient-to-br from-indigo-400 to-indigo-600 p-5 rounded-2xl shadow-lg text-white flex flex-col gap-2">
+            <div className="flex items-center gap-2 mb-2">
+              <FaUserTie className="text-2xl" />
+              <span className="font-bold text-lg">Leadership Income</span>
+            </div>
+            <p className="text-sm">Earn based on company turnover. <br/>Qualify with <b>10 active direct referrals</b>.<br/>Team earns, you earn too!<br/>Example: 500 × 10 = <b>₹5000/month</b> (see plan for details).</p>
+            <div className="flex flex-wrap gap-2 mt-2 text-xs">
+              <span className="bg-white/20 px-2 py-1 rounded">10 Directs Required</span>
+              <span className="bg-white/20 px-2 py-1 rounded">Team Turnover</span>
+            </div>
+          </div>
+          {/* Rewards */}
+          <div className="bg-gradient-to-br from-pink-400 to-pink-600 p-5 rounded-2xl shadow-lg text-white flex flex-col gap-2">
+            <div className="flex items-center gap-2 mb-2">
+              <FaGift className="text-2xl" />
+              <span className="font-bold text-lg">Rewards</span>
+            </div>
+            <p className="text-sm">Earn company awards for performance.<br/>Business volume: <b>₹1L–₹30L</b>.<br/>First 500 pairs: <b>₹25,000</b> bonus.<br/>Next 100 pairs: <b>₹5,000</b> bonus.<br/>Festival rewards monthly.</p>
+            <div className="flex flex-wrap gap-2 mt-2 text-xs">
+              <span className="bg-white/20 px-2 py-1 rounded">Volume: ₹1L–₹30L</span>
+              <span className="bg-white/20 px-2 py-1 rounded">Bonuses & Gifts</span>
+            </div>
+          </div>
+        </div>
 
         {/* Tab Content */}
         <AnimatePresence mode="wait">
@@ -515,25 +935,26 @@ export default function AffiliateDashboard({ userId }) {
               </div>
               
               {/* Key Metrics Cards - Vedmurti Plan */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mb-8">
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.1 }}
-                  className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow"
+                  className="bg-gradient-to-br from-green-500 to-green-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow"
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div className="p-3 bg-white/20 rounded-xl">
-                      <MdAccountBalance className="text-2xl" />
+                      <BsCurrencyRupee className="text-2xl" />
                     </div>
-                    <div className="text-right">
-                      <p className="text-blue-100 text-sm">Total Balance</p>
-                      <p className="text-2xl font-bold">₹{(user.affiliateBalance || 0).toFixed(2)}</p>
-                    </div>
+                                      <div className="text-right">
+                    <p className="text-green-100 text-sm">Today's Referrals</p>
+                    <p className="text-2xl font-bold">{todayReferrals}</p>
+                    <p className="text-xs text-green-200">Direct referrals today</p>
                   </div>
-                  <div className="flex items-center gap-2 text-blue-100">
-                    <HiOutlineTrendingUp className="text-sm" />
-                    <span className="text-xs">Available Balance</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-green-100">
+                    <BsLightning className="text-sm" />
+                    <span className="text-xs">Direct Referrals</span>
                   </div>
                 </motion.div>
 
@@ -541,27 +962,6 @@ export default function AffiliateDashboard({ userId }) {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
-                  className="bg-gradient-to-br from-green-500 to-green-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow"
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="p-3 bg-white/20 rounded-xl">
-                      <BsCurrencyRupee className="text-2xl" />
-                    </div>
-                    <div className="text-right">
-                      <p className="text-green-100 text-sm">Today's Income</p>
-                      <p className="text-2xl font-bold">₹{(incomeData?.todayIncome || 0).toFixed(2)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-green-100">
-                    <BsLightning className="text-sm" />
-                    <span className="text-xs">Daily Earnings</span>
-                  </div>
-                </motion.div>
-
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
                   className="bg-gradient-to-br from-purple-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow"
                 >
                   <div className="flex items-center justify-between mb-4">
@@ -583,7 +983,7 @@ export default function AffiliateDashboard({ userId }) {
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
+                  transition={{ delay: 0.3 }}
                   className="bg-gradient-to-br from-orange-500 to-orange-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-shadow"
                 >
                   <div className="flex items-center justify-between mb-4">
@@ -616,22 +1016,22 @@ export default function AffiliateDashboard({ userId }) {
                     </div>
                     <div className="text-right">
                       <p className="text-emerald-100 text-sm">Promotional Income</p>
-                      <p className="text-2xl font-bold">₹{(incomeData?.promotionalIncome || 0).toFixed(2)}</p>
+                      <p className="text-2xl font-bold">₹{calculatedPromotionalIncome.toFixed(2)}</p>
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-emerald-100 text-sm">
-                    <span>Pairs: {incomeData?.pairsCount || 0}</span>
+                    <span>Pairs: {totalPairs}</span>
                     <span>₹400/pair</span>
                   </div>
                   <div className="mt-2 bg-white/20 rounded-full h-2">
                     <div 
                       className="bg-white rounded-full h-2 transition-all duration-300"
-                      style={{ width: `${Math.min((incomeData?.dailyPairs || 0) / 400 * 100, 100)}%` }}
+                      style={{ width: `${Math.min((totalPairs || 0) / 400 * 100, 100)}%` }}
                     ></div>
                   </div>
                   <div className="flex justify-between text-xs text-emerald-100 mt-1">
-                    <span>Daily: {incomeData?.dailyPairs || 0}/400</span>
-                    <span>₹{(incomeData?.dailyIncome || 0).toFixed(0)}/₹2000</span>
+                    <span>Daily: {totalPairs || 0}/400</span>
+                    <span>₹{(calculatedPromotionalIncome || 0).toFixed(0)}/₹2000</span>
                   </div>
                 </motion.div>
 
@@ -647,25 +1047,25 @@ export default function AffiliateDashboard({ userId }) {
                     </div>
                     <div className="text-right">
                       <p className="text-indigo-100 text-sm">Leadership Income</p>
-                      <p className="text-2xl font-bold">₹{(incomeData?.leadershipIncome || 0).toFixed(2)}</p>
+                      <p className="text-2xl font-bold">₹{calculatedLeadershipIncome.toFixed(2)}</p>
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-indigo-100 text-sm">
-                    <span>Qualified: {incomeData?.qualifiedReferrals || 0}/10</span>
+                    <span>Qualified: {directReferralCount}/10</span>
                     <span className={`px-2 py-1 rounded-full text-xs ${
-                      incomeData?.eligibleForLeadership ? 'bg-green-500' : 'bg-red-500'
+                      directReferralCount >= 10 ? 'bg-green-500' : 'bg-red-500'
                     }`}>
-                      {incomeData?.eligibleForLeadership ? 'Eligible' : 'Not Eligible'}
+                      {directReferralCount >= 10 ? 'Eligible' : 'Not Eligible'}
                     </span>
                   </div>
                   <div className="mt-2 bg-white/20 rounded-full h-2">
                     <div 
                       className="bg-white rounded-full h-2 transition-all duration-300"
-                      style={{ width: `${Math.min((incomeData?.qualifiedReferrals || 0) / 10 * 100, 100)}%` }}
+                      style={{ width: `${Math.min((directReferralCount || 0) / 10 * 100, 100)}%` }}
                     ></div>
                   </div>
                   <div className="text-xs text-indigo-100 mt-1">
-                    Team Turnover: ₹{(incomeData?.teamTurnover || 0).toLocaleString()}
+                    Team Turnover: ₹{(calculatedLeadershipIncome * 10).toLocaleString()}
                   </div>
                 </motion.div>
 
@@ -681,42 +1081,42 @@ export default function AffiliateDashboard({ userId }) {
                     </div>
                     <div className="text-right">
                       <p className="text-pink-100 text-sm">Rewards Income</p>
-                      <p className="text-2xl font-bold">₹{(incomeData?.rewardsIncome || 0).toFixed(2)}</p>
+                      <p className="text-2xl font-bold">₹{calculatedRewards.total.toFixed(2)}</p>
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-pink-100 text-sm">
-                    <span>Rank: {currentRankInfo.rank}</span>
-                    <span>Level {currentRankInfo.level}</span>
+                    <span>Rank: {calculatedRewards.pairs >= 500 ? 'Achiever' : 'Starter'}</span>
+                    <span>Level {Math.floor(calculatedRewards.pairs / 100)}</span>
                   </div>
                   <div className="mt-2 bg-white/20 rounded-full h-2">
                     <div 
                       className="bg-white rounded-full h-2 transition-all duration-300"
-                      style={{ width: `${(currentRankInfo.level / 11) * 100}%` }}
+                      style={{ width: `${Math.min((calculatedRewards.pairs || 0) / 500 * 100, 100)}%` }}
                     ></div>
                   </div>
                   <div className="text-xs text-pink-100 mt-1">
-                    Business Volume: ₹{(incomeData?.businessVolume || 0).toLocaleString()}
+                    Business Volume: ₹{(calculatedRewards.pairs * 400).toLocaleString()}
                   </div>
                 </motion.div>
               </div>
 
-              {/* Vedmurti Plan Payout Info */}
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.8 }}
-                className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg mb-8 overflow-x-auto"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-xl font-semibold mb-2">Next Payout - Vedmurti Plan</h3>
-                    <p className="text-indigo-100">Payouts on 2nd, 12th & 22nd of every month</p>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-3xl font-bold">{payoutInfo.daysUntil}</div>
-                    <div className="text-indigo-200 text-sm">Days Left</div>
-                  </div>
-                </div>
+                      {/* Vedmurti Plan Payout Info */}
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.8 }}
+          className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg mb-8 overflow-x-auto"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-xl font-semibold mb-2">Next Payout - Vedmurti Plan</h3>
+              <p className="text-indigo-100">Automatic payouts on 2nd, 12th & 22nd of every month</p>
+            </div>
+            <div className="text-right">
+              <div className="text-3xl font-bold">{payoutInfo.daysUntil}</div>
+              <div className="text-indigo-200 text-sm">Days Left</div>
+            </div>
+          </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div className="bg-white/10 rounded-lg p-4">
@@ -766,6 +1166,14 @@ export default function AffiliateDashboard({ userId }) {
                   <div className="flex justify-between items-center mt-2">
                     <span className="text-indigo-100">Payout Schedule:</span>
                     <span className="font-semibold">2nd, 12th, 22nd (Monthly)</span>
+                  </div>
+                  <div className="mt-3 p-3 bg-green-500/20 rounded-lg border border-green-400">
+                    <div className="flex items-center gap-2">
+                      <FaCheck className="text-green-300" />
+                      <span className="text-green-100 text-sm">
+                        Payouts are automatically generated on scheduled dates. Your income will be reset after each payout.
+                      </span>
+                    </div>
                   </div>
                   {!incomeData?.kycCompleted && (
                     <div className="mt-3 p-3 bg-red-500/20 rounded-lg border border-red-400">
