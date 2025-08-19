@@ -142,7 +142,7 @@ const PayoutManagement = () => {
       if (generatedPayouts.length > 0) {
         // Refresh payouts list
         await fetchPayouts();
-        setSuccessMessage(`✅ Successfully generated ${generatedPayouts.length} payouts! Total amount: ${formatCurrency(generatedPayouts.reduce((sum, payout) => sum + payout.payoutAmount, 0))}`);
+        setSuccessMessage(`✅ Successfully generated ${generatedPayouts.length} new payouts! Total amount: ${formatCurrency(generatedPayouts.reduce((sum, payout) => sum + payout.payoutAmount, 0))}`);
         
         // Clear success message after 5 seconds
         setTimeout(() => {
@@ -210,10 +210,14 @@ const PayoutManagement = () => {
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-blue-900 mb-2">Manual Payout Generation</h3>
               <p className="text-blue-700 mb-3">
-                Generate payouts manually for all eligible users. This will:
+                Generate payouts manually for all eligible users based on Total Income calculation. This will:
               </p>
               <ul className="text-blue-600 text-sm space-y-1 mb-4">
-                <li>• Process payouts for users with KYC completed and positive income</li>
+                <li>• Calculate Total Income = Promotional Income + Mentorship Income + Rewards</li>
+                <li>• Promotional Income: Team pairs × ₹400 (from left/right team balance)</li>
+                <li>• Mentorship Income: Direct referrals' pairs × ₹100 (from their networks)</li>
+                <li>• Rewards: Performance bonuses (₹25,000 for 500 pairs, ₹5,000 for 600 pairs)</li>
+                <li>• Remove existing payouts for the current cycle</li>
                 <li>• Apply 5% deduction and calculate payout amounts</li>
                 <li>• Reset user incomes after payout generation</li>
                 <li>• Create payout records with bank details</li>
@@ -347,6 +351,11 @@ const PayoutManagement = () => {
         <div className="mt-2 text-sm text-gray-600">
           <p>💡 <strong>Export Note:</strong> Only completed payouts are exported. Rejected and pending payouts are excluded from the Excel file.</p>
         </div>
+        
+        {/* Cancelled Payouts Info */}
+        <div className="mt-2 text-sm text-blue-600">
+          <p>ℹ️ <strong>Note:</strong> Cancelled payouts (from previous payout cycles) are automatically hidden from this list. They are tracked in the database for audit purposes.</p>
+        </div>
 
         {/* Filters */}
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
@@ -376,6 +385,7 @@ const PayoutManagement = () => {
                 <option value="pending">Pending</option>
                 <option value="completed">Completed</option>
                 <option value="rejected">Rejected</option>
+                {/* Note: Cancelled payouts are automatically filtered out */}
               </select>
             </div>
           </div>
@@ -634,6 +644,47 @@ const PayoutManagement = () => {
                     </div>
                   </div>
                   
+                  {/* Income Breakdown */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-3">Income Breakdown</h3>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Promotional Income</label>
+                          <p className="text-lg font-bold text-blue-600">{formatCurrency(selectedPayout.incomeBreakdown?.promotionalIncome || 0)}</p>
+                          <p className="text-xs text-gray-500">
+                            {selectedPayout.incomeBreakdown?.referralPairs || 0} pairs × ₹400
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Mentorship Income</label>
+                          <p className="text-lg font-bold text-teal-600">{formatCurrency(selectedPayout.incomeBreakdown?.mentorshipIncome || 0)}</p>
+                          <p className="text-xs text-gray-500">
+                            {selectedPayout.incomeBreakdown?.directReferrals || 0} referrals' pairs × ₹100
+                          </p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Rewards Income</label>
+                          <p className="text-lg font-bold text-purple-600">{formatCurrency(selectedPayout.incomeBreakdown?.rewardsIncome || 0)}</p>
+                          <p className="text-xs text-gray-500">
+                            Performance bonuses
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Team Structure</label>
+                          <p className="text-sm text-gray-900">
+                            Left: {selectedPayout.incomeBreakdown?.leftTeamCount || 0} | Right: {selectedPayout.incomeBreakdown?.rightTeamCount || 0}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Total: {selectedPayout.incomeBreakdown?.leftTeamCount + selectedPayout.incomeBreakdown?.rightTeamCount || 0} members
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
                   {/* Status and Dates */}
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-3">Status & Dates</h3>
@@ -693,11 +744,22 @@ const PayoutManagement = () => {
                 </p>
                 
                 <ul className="text-sm text-gray-600 mb-6 space-y-2">
+                  <li>• <strong>Remove existing payouts</strong> for the current cycle</li>
                   <li>• Process payouts for users with KYC completed</li>
                   <li>• Apply 5% deduction to all payouts</li>
                   <li>• Reset user incomes after payout generation</li>
                   <li>• Create payout records with bank details</li>
                 </ul>
+                
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <FaExclamationTriangle className="text-yellow-600" />
+                    <span className="text-sm font-medium text-yellow-800">Important Notice</span>
+                  </div>
+                  <p className="text-xs text-yellow-700 mt-1">
+                    This will cancel all existing payouts for the current cycle and generate new ones based on updated income calculations.
+                  </p>
+                </div>
                 
                 <div className="flex gap-3">
                   <button

@@ -1,6 +1,20 @@
 import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { app } from '../Firebase/firebase';
 
+/**
+ * PayoutService - Handles all payout generation and management
+ * 
+ * IMPORTANT: This service ONLY uses the NEW income calculation method that matches
+ * the AffiliateDashboard logic. It does NOT use any old income calculation methods.
+ * 
+ * New Income Calculation Formula:
+ * Total Income = Promotional Income + Mentorship Income + Rewards
+ * 
+ * - Promotional Income: Math.min(leftTeamCount, rightTeamCount) × ₹400
+ * - Mentorship Income: Sum of direct referrals' pairs × ₹100
+ * - Rewards: Performance bonuses (₹25,000 for 500 pairs, ₹5,000 for 600 pairs)
+ */
+
 class PayoutService {
   // Get next payout date (2nd, 12th, 22nd of each month)
   getNextPayoutDate() {
@@ -43,12 +57,13 @@ class PayoutService {
     return [2, 12, 22].includes(currentDay);
   }
 
-  // Generate automatic payouts for all eligible users
+    // Generate automatic payouts for all eligible users
   async generateAutomaticPayouts() {
     const db = getFirestore(app);
     
     try {
-  
+      // First, remove all existing payouts for the current cycle
+      await this.removeExistingPayouts();
       
       // Get all users with KYC completed, approved payment requests, and positive income
       const usersQuery = query(
@@ -60,14 +75,11 @@ class PayoutService {
       
       const usersSnapshot = await getDocs(usersQuery);
       
-      
       const payouts = [];
       
       for (const userDoc of usersSnapshot.docs) {
         const userData = userDoc.data();
         const userId = userDoc.id;
-        
-        
         
         // Get user's verified bank accounts
         const bankAccountsQuery = query(
@@ -79,15 +91,22 @@ class PayoutService {
         
         const bankAccountsSnapshot = await getDocs(bankAccountsQuery);
         
-        
         if (!bankAccountsSnapshot.empty) {
           const primaryAccount = bankAccountsSnapshot.docs[0].data();
           
-          // Calculate total income from all sources
+          // Calculate total income from all sources using NEW method only
           const totalIncome = await this.calculateUserTotalIncome(userId);
           
+          // Validate that income calculation is working correctly
+          if (totalIncome < 0) {
+            console.error(`Invalid income calculation for user ${userId}: ${totalIncome}`);
+            continue; // Skip this user if calculation is invalid
+          }
           
           if (totalIncome > 0) {
+            // Get detailed income breakdown
+            const incomeBreakdown = await this.getUserIncomeBreakdown(userId);
+            
             // Create payout record
             const payoutData = {
               userId: userId,
@@ -97,6 +116,7 @@ class PayoutService {
               totalIncome: totalIncome,
               payoutAmount: totalIncome * 0.95, // 5% deduction
               deduction: totalIncome * 0.05,
+              incomeBreakdown: incomeBreakdown, // Include detailed breakdown
               bankAccount: {
                 accountHolderName: primaryAccount.accountHolderName,
                 accountNumber: primaryAccount.accountNumber,
@@ -109,8 +129,6 @@ class PayoutService {
               generatedAt: new Date(),
               payoutCycle: this.getCurrentPayoutCycle()
             };
-            
-            
             
             // Save payout record
             const payoutRef = doc(collection(db, 'payouts'));
@@ -127,14 +145,13 @@ class PayoutService {
         }
       }
       
-      
       return payouts;
     } catch (error) {
       throw error;
     }
   }
 
-  // Calculate user's total income from all sources
+  // Calculate user's total income from all sources (Updated to match AffiliateDashboard logic)
   async calculateUserTotalIncome(userId) {
     const db = getFirestore(app);
     
@@ -142,108 +159,293 @@ class PayoutService {
       // Get user data
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (!userDoc.exists()) {
-  
         return 0;
       }
       
       const userData = userDoc.data();
       if (!userData.referralCode) {
-  
         return 0;
       }
       
-      // Build tree for income calculation (same logic as AffiliateDashboard) - Only approved users
-      const buildTree = async (referralCode, level = 0, maxLevel = 3) => {
-        if (level >= maxLevel) return null;
-        const userQuery = query(collection(db, 'users'), where('referralCode', '==', referralCode));
-        const userSnapshot = await getDocs(userQuery);
-        if (userSnapshot.empty) return null;
-        const userDoc = userSnapshot.docs[0];
-        const userData = userDoc.data();
-        
-        // Only include users with approved payment requests for pair matching
-        const isPaymentApproved = userData.affiliateStatus === true && userData.paymentRequestStatus === 'approved';
-        
-        let leftNode = null, rightNode = null;
-        if (userData.leftDownLine) leftNode = await buildTree(userData.leftDownLine, level + 1, maxLevel);
-        if (userData.rightDownLine) rightNode = await buildTree(userData.rightDownLine, level + 1, maxLevel);
-        return {
-          id: userDoc.id,
-          name: userData.name || 'Unknown',
-          referralCode: userData.referralCode,
-          email: userData.email,
-          joinDate: userData.joinDate,
-          affiliateStatus: userData.affiliateStatus,
-          paymentRequestStatus: userData.paymentRequestStatus,
-          isPaymentApproved,
-          leftNode,
-          rightNode,
-          level
-        };
-      };
-      
-      const treeData = await buildTree(userData.referralCode);
-      if (!treeData) {
+      // Calculate left and right team counts (same logic as AffiliateDashboard)
+      const countRecursive = async (referralCode, side) => {
+        if (!referralCode) return 0;
 
-        return 0;
-      }
-      
-      // Calculate promotional income - Only count approved users
-      const countLeg = (node) => {
-        if (!node) return 0;
-        const currentUserCount = node.isPaymentApproved ? 1 : 0;
-        return currentUserCount + countLeg(node.leftNode) + countLeg(node.rightNode);
-      };
-      let l = treeData.leftNode ? countLeg(treeData.leftNode) : 0;
-      let r = treeData.rightNode ? countLeg(treeData.rightNode) : 0;
-      // Simple 1:1 ratio - match one left with one right
-      let pairs = Math.min(l, r);
-      const promotionalIncome = pairs * 400;
-      
-      // Calculate mentorship income - ₹100 per pair when downlines match pairs
-      let mentorshipIncome = 0;
-      const countDownlinePairs = (node) => {
-        if (!node) return 0;
+        // Get the user document
+        const q = query(
+          collection(db, 'users'),
+          where('referralCode', '==', referralCode)
+        );
+        const snapshot = await getDocs(q);
         
-        // Count pairs for this node (if it has both left and right approved downlines)
-        let nodePairs = 0;
-        if (node.leftNode && node.rightNode && 
-            node.leftNode.isPaymentApproved && node.rightNode.isPaymentApproved) {
-          nodePairs = 1;
+        if (snapshot.empty) return 0;
+
+        const user = snapshot.docs[0].data();
+        let count = 1; // Count this user
+
+        // Count left and right downlines recursively
+        if (user.leftDownLine) {
+          count += await countRecursive(user.leftDownLine, side);
+        }
+        if (user.rightDownLine) {
+          count += await countRecursive(user.rightDownLine, side);
+        }
+
+        return count;
+      };
+
+      // Count left and right team members
+      let leftTeamCount = 0;
+      let rightTeamCount = 0;
+      
+      if (userData.leftDownLine) {
+        leftTeamCount = await countRecursive(userData.leftDownLine, 'left');
+      }
+      if (userData.rightDownLine) {
+        rightTeamCount = await countRecursive(userData.rightDownLine, 'right');
+      }
+
+      // Calculate promotional income from team pairs
+      const promotionalIncome = Math.min(leftTeamCount, rightTeamCount) * 400; // ₹400 per pair
+      
+      // Calculate mentorship income from direct referrals' networks
+      let mentorshipIncome = 0;
+      
+      // Get all direct referrals
+      const referralsQuery = query(
+        collection(db, 'users'),
+        where('referredBy', '==', userData.referralCode),
+        where('affiliateStatus', '==', true),
+        where('paymentRequestStatus', '==', 'approved')
+      );
+      const referralsSnapshot = await getDocs(referralsQuery);
+      
+      // Calculate pairs for each direct referral
+      for (const referralDoc of referralsSnapshot.docs) {
+        const referralData = referralDoc.data();
+        
+        // Count left and right teams for this referral
+        let referralLeftCount = 0;
+        let referralRightCount = 0;
+        
+        if (referralData.leftDownLine) {
+          referralLeftCount = await countRecursive(referralData.leftDownLine, 'left');
+        }
+        if (referralData.rightDownLine) {
+          referralRightCount = await countRecursive(referralData.rightDownLine, 'right');
         }
         
-        // Recursively count pairs from all downlines
-        const leftPairs = countDownlinePairs(node.leftNode);
-        const rightPairs = countDownlinePairs(node.rightNode);
-        
-        return nodePairs + leftPairs + rightPairs;
-      };
-      
-      // Calculate pairs from left and right downlines (excluding root)
-      let totalDownlinePairs = 0;
-      if (treeData.leftNode) {
-        totalDownlinePairs += countDownlinePairs(treeData.leftNode);
+        // Add pairs from this referral
+        const referralPairs = Math.min(referralLeftCount, referralRightCount);
+        mentorshipIncome += referralPairs * 100; // ₹100 per pair
       }
-      if (treeData.rightNode) {
-        totalDownlinePairs += countDownlinePairs(treeData.rightNode);
-      }
-      
-      mentorshipIncome = totalDownlinePairs * 100; // ₹100 per pair
       
       // Calculate rewards
       let rewardsIncome = 0;
-      if (pairs >= 500) {
+      const totalPairs = Math.min(leftTeamCount, rightTeamCount);
+      
+      if (totalPairs >= 500) {
         rewardsIncome += 25000;
-        if (pairs >= 600) {
+        if (totalPairs >= 600) {
           rewardsIncome += 5000;
         }
       }
       
       const totalIncome = promotionalIncome + mentorshipIncome + rewardsIncome;
       
+      // Log the calculation for verification (NEW METHOD ONLY)
+      console.log(`NEW METHOD - User ${userId} Income Calculation:`, {
+        userId,
+        referralCode: userData.referralCode,
+        leftTeamCount,
+        rightTeamCount,
+        promotionalIncome,
+        mentorshipIncome,
+        rewardsIncome,
+        totalIncome,
+        calculationMethod: 'NEW_AFFILIATE_DASHBOARD_METHOD'
+      });
+      
       return totalIncome;
     } catch (error) {
+      console.error('Error calculating user total income:', error);
       return 0;
+    }
+  }
+
+  // Remove existing payouts for the current cycle
+  async removeExistingPayouts() {
+    const db = getFirestore(app);
+    
+    try {
+      const currentCycle = this.getCurrentPayoutCycle();
+      
+      // Get all existing payouts for the current cycle
+      const payoutsQuery = query(
+        collection(db, 'payouts'),
+        where('payoutCycle', '==', currentCycle)
+      );
+      
+      const payoutsSnapshot = await getDocs(payoutsQuery);
+      
+      // Delete all existing payouts for this cycle
+      const deletePromises = payoutsSnapshot.docs.map(doc => 
+        updateDoc(doc.ref, { 
+          status: 'cancelled',
+          cancelledAt: new Date(),
+          cancelledReason: 'Replaced by new payout cycle'
+        })
+      );
+      
+      await Promise.all(deletePromises);
+      
+      console.log(`Removed ${payoutsSnapshot.size} existing payouts for cycle ${currentCycle}`);
+      
+      return payoutsSnapshot.size;
+    } catch (error) {
+      console.error('Error removing existing payouts:', error);
+      throw error;
+    }
+  }
+
+  // Get detailed income breakdown for a user (for admin display)
+  async getUserIncomeBreakdown(userId) {
+    const db = getFirestore(app);
+    
+    try {
+      // Get user data
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (!userDoc.exists()) {
+        return {
+          promotionalIncome: 0,
+          mentorshipIncome: 0,
+          rewardsIncome: 0,
+          totalIncome: 0,
+          leftTeamCount: 0,
+          rightTeamCount: 0,
+          directReferrals: 0,
+          referralPairs: 0
+        };
+      }
+      
+      const userData = userDoc.data();
+      if (!userData.referralCode) {
+        return {
+          promotionalIncome: 0,
+          mentorshipIncome: 0,
+          rewardsIncome: 0,
+          totalIncome: 0,
+          leftTeamCount: 0,
+          rightTeamCount: 0,
+          directReferrals: 0,
+          referralPairs: 0
+        };
+      }
+      
+      // Calculate left and right team counts
+      const countRecursive = async (referralCode, side) => {
+        if (!referralCode) return 0;
+
+        const q = query(
+          collection(db, 'users'),
+          where('referralCode', '==', referralCode)
+        );
+        const snapshot = await getDocs(q);
+        
+        if (snapshot.empty) return 0;
+
+        const user = snapshot.docs[0].data();
+        let count = 1;
+
+        if (user.leftDownLine) {
+          count += await countRecursive(user.leftDownLine, side);
+        }
+        if (user.rightDownLine) {
+          count += await countRecursive(user.rightDownLine, side);
+        }
+
+        return count;
+      };
+
+      // Count left and right team members
+      let leftTeamCount = 0;
+      let rightTeamCount = 0;
+      
+      if (userData.leftDownLine) {
+        leftTeamCount = await countRecursive(userData.leftDownLine, 'left');
+      }
+      if (userData.rightDownLine) {
+        rightTeamCount = await countRecursive(userData.rightDownLine, 'right');
+      }
+
+      // Calculate promotional income
+      const promotionalIncome = Math.min(leftTeamCount, rightTeamCount) * 400;
+      
+      // Calculate mentorship income from direct referrals
+      let mentorshipIncome = 0;
+      let referralPairs = 0;
+      
+      const referralsQuery = query(
+        collection(db, 'users'),
+        where('referredBy', '==', userData.referralCode),
+        where('affiliateStatus', '==', true),
+        where('paymentRequestStatus', '==', 'approved')
+      );
+      const referralsSnapshot = await getDocs(referralsQuery);
+      const directReferrals = referralsSnapshot.size;
+      
+      for (const referralDoc of referralsSnapshot.docs) {
+        const referralData = referralDoc.data();
+        
+        let referralLeftCount = 0;
+        let referralRightCount = 0;
+        
+        if (referralData.leftDownLine) {
+          referralLeftCount = await countRecursive(referralData.leftDownLine, 'left');
+        }
+        if (referralData.rightDownLine) {
+          referralRightCount = await countRecursive(referralData.rightDownLine, 'right');
+        }
+        
+        const referralPairs = Math.min(referralLeftCount, referralRightCount);
+        mentorshipIncome += referralPairs * 100;
+      }
+      
+      // Calculate rewards
+      let rewardsIncome = 0;
+      const totalPairs = Math.min(leftTeamCount, rightTeamCount);
+      
+      if (totalPairs >= 500) {
+        rewardsIncome += 25000;
+        if (totalPairs >= 600) {
+          rewardsIncome += 5000;
+        }
+      }
+      
+      const totalIncome = promotionalIncome + mentorshipIncome + rewardsIncome;
+      
+      return {
+        promotionalIncome,
+        mentorshipIncome,
+        rewardsIncome,
+        totalIncome,
+        leftTeamCount,
+        rightTeamCount,
+        directReferrals,
+        referralPairs: Math.min(leftTeamCount, rightTeamCount)
+      };
+    } catch (error) {
+      console.error('Error getting user income breakdown:', error);
+      return {
+        promotionalIncome: 0,
+        mentorshipIncome: 0,
+        rewardsIncome: 0,
+        totalIncome: 0,
+        leftTeamCount: 0,
+        rightTeamCount: 0,
+        directReferrals: 0,
+        referralPairs: 0
+      };
     }
   }
 
@@ -287,7 +489,7 @@ class PayoutService {
     return `${nextYear}-${nextMonth.toString().padStart(2, '0')}-01`;
   }
 
-  // Get all payouts for admin
+  // Get all payouts for admin (excluding cancelled payouts)
   async getAllPayouts() {
     const db = getFirestore(app);
     
@@ -301,10 +503,14 @@ class PayoutService {
       const payouts = [];
       
       snapshot.forEach((doc) => {
-        payouts.push({
-          id: doc.id,
-          ...doc.data()
-        });
+        const payoutData = doc.data();
+        // Filter out cancelled payouts
+        if (payoutData.status !== 'cancelled') {
+          payouts.push({
+            id: doc.id,
+            ...payoutData
+          });
+        }
       });
       
       return payouts;
@@ -320,10 +526,14 @@ class PayoutService {
           const payouts = [];
           
           snapshot.forEach((doc) => {
-            payouts.push({
-              id: doc.id,
-              ...doc.data()
-            });
+            const payoutData = doc.data();
+            // Filter out cancelled payouts
+            if (payoutData.status !== 'cancelled') {
+              payouts.push({
+                id: doc.id,
+                ...payoutData
+              });
+            }
           });
           
           // Sort manually since we can't use orderBy
@@ -393,10 +603,14 @@ class PayoutService {
           const payouts = [];
           
           snapshot.forEach((doc) => {
-            payouts.push({
-              id: doc.id,
-              ...doc.data()
-            });
+            const payoutData = doc.data();
+            // Filter out cancelled payouts
+            if (payoutData.status !== 'cancelled') {
+              payouts.push({
+                id: doc.id,
+                ...payoutData
+              });
+            }
           });
           
           // Sort manually since we can't use orderBy
