@@ -1,4 +1,4 @@
-import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
+import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { app } from '../Firebase/firebase';
 
 /**
@@ -10,9 +10,13 @@ import { app } from '../Firebase/firebase';
  * New Income Calculation Formula:
  * Total Income = Promotional Income + Mentorship Income + Rewards
  * 
- * - Promotional Income: Math.min(leftTeamCount, rightTeamCount) × ₹400
+ * - Promotional Income: Math.min(leftTeamCount, rightTeamCount) × ₹400 (Daily Cap: ₹2000)
  * - Mentorship Income: Sum of direct referrals' pairs × ₹100
  * - Rewards: Performance bonuses (₹25,000 for 500 pairs, ₹5,000 for 600 pairs)
+ * 
+ * DAILY CAP SYSTEM:
+ * Users can only earn up to ₹2000 per day from promotional income (5 pairs maximum per day).
+ * This ensures fair distribution and prevents excessive daily earnings.
  */
 
 class PayoutService {
@@ -57,7 +61,7 @@ class PayoutService {
     return [2, 12, 22].includes(currentDay);
   }
 
-    // Generate automatic payouts for all eligible users
+  // Generate automatic payouts for all eligible users
   async generateAutomaticPayouts() {
     const db = getFirestore(app);
     
@@ -205,8 +209,9 @@ class PayoutService {
         rightTeamCount = await countRecursive(userData.rightDownLine, 'right');
       }
 
-      // Calculate promotional income from team pairs
-      const promotionalIncome = Math.min(leftTeamCount, rightTeamCount) * 400; // ₹400 per pair
+      // Calculate promotional income from team pairs with daily cap of ₹2000
+      const potentialPromotionalIncome = Math.min(leftTeamCount, rightTeamCount) * 400; // ₹400 per pair
+      const promotionalIncome = Math.min(potentialPromotionalIncome, 2000); // Daily cap of ₹2000
       
       // Calculate mentorship income from direct referrals' networks
       let mentorshipIncome = 0;
@@ -288,22 +293,18 @@ class PayoutService {
       
       const payoutsSnapshot = await getDocs(payoutsQuery);
       
-      // Delete all existing payouts for this cycle
+      // Actually delete all existing payouts for this cycle
       const deletePromises = payoutsSnapshot.docs.map(doc => 
-        updateDoc(doc.ref, { 
-          status: 'cancelled',
-          cancelledAt: new Date(),
-          cancelledReason: 'Replaced by new payout cycle'
-        })
+        doc.ref.delete()
       );
       
       await Promise.all(deletePromises);
       
-      console.log(`Removed ${payoutsSnapshot.size} existing payouts for cycle ${currentCycle}`);
+      console.log(`Deleted ${payoutsSnapshot.size} existing payouts for cycle ${currentCycle}`);
       
       return payoutsSnapshot.size;
     } catch (error) {
-      console.error('Error removing existing payouts:', error);
+      console.error('Error deleting existing payouts:', error);
       throw error;
     }
   }
@@ -489,7 +490,7 @@ class PayoutService {
     return `${nextYear}-${nextMonth.toString().padStart(2, '0')}-01`;
   }
 
-  // Get all payouts for admin (excluding cancelled payouts)
+  // Get all payouts for admin
   async getAllPayouts() {
     const db = getFirestore(app);
     
@@ -504,13 +505,10 @@ class PayoutService {
       
       snapshot.forEach((doc) => {
         const payoutData = doc.data();
-        // Filter out cancelled payouts
-        if (payoutData.status !== 'cancelled') {
-          payouts.push({
-            id: doc.id,
-            ...payoutData
-          });
-        }
+        payouts.push({
+          id: doc.id,
+          ...payoutData
+        });
       });
       
       return payouts;
@@ -527,13 +525,10 @@ class PayoutService {
           
           snapshot.forEach((doc) => {
             const payoutData = doc.data();
-            // Filter out cancelled payouts
-            if (payoutData.status !== 'cancelled') {
-              payouts.push({
-                id: doc.id,
-                ...payoutData
-              });
-            }
+            payouts.push({
+              id: doc.id,
+              ...payoutData
+            });
           });
           
           // Sort manually since we can't use orderBy
@@ -604,13 +599,10 @@ class PayoutService {
           
           snapshot.forEach((doc) => {
             const payoutData = doc.data();
-            // Filter out cancelled payouts
-            if (payoutData.status !== 'cancelled') {
-              payouts.push({
-                id: doc.id,
-                ...payoutData
-              });
-            }
+            payouts.push({
+              id: doc.id,
+              ...payoutData
+            });
           });
           
           // Sort manually since we can't use orderBy

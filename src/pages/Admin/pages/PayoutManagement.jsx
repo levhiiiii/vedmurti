@@ -142,7 +142,7 @@ const PayoutManagement = () => {
       if (generatedPayouts.length > 0) {
         // Refresh payouts list
         await fetchPayouts();
-        setSuccessMessage(`✅ Successfully generated ${generatedPayouts.length} new payouts! Total amount: ${formatCurrency(generatedPayouts.reduce((sum, payout) => sum + payout.payoutAmount, 0))}`);
+        setSuccessMessage(`✅ Successfully deleted existing payouts and generated ${generatedPayouts.length} new payouts! Total amount: ${formatCurrency(generatedPayouts.reduce((sum, payout) => sum + payout.payoutAmount, 0))}`);
         
         // Clear success message after 5 seconds
         setTimeout(() => {
@@ -214,13 +214,14 @@ const PayoutManagement = () => {
               </p>
               <ul className="text-blue-600 text-sm space-y-1 mb-4">
                 <li>• Calculate Total Income = Promotional Income + Mentorship Income + Rewards</li>
-                <li>• Promotional Income: Team pairs × ₹400 (from left/right team balance)</li>
+                <li>• Promotional Income: Team pairs × ₹400 (from left/right team balance) - <strong>Daily Cap: ₹2000</strong></li>
                 <li>• Mentorship Income: Direct referrals' pairs × ₹100 (from their networks)</li>
                 <li>• Rewards: Performance bonuses (₹25,000 for 500 pairs, ₹5,000 for 600 pairs)</li>
-                <li>• Remove existing payouts for the current cycle</li>
+                <li>• <strong>Delete all existing payouts</strong> for the current cycle</li>
                 <li>• Apply 5% deduction and calculate payout amounts</li>
                 <li>• Reset user incomes after payout generation</li>
                 <li>• Create payout records with bank details</li>
+                <li>• <strong>Daily Cap System:</strong> Users can only earn up to ₹2000 per day from promotional income (5 pairs maximum)</li>
               </ul>
               <p className="text-blue-600 text-xs">
                 <strong>Note:</strong> Automatic payouts are scheduled for 2nd, 12th, and 22nd of each month.
@@ -352,9 +353,9 @@ const PayoutManagement = () => {
           <p>💡 <strong>Export Note:</strong> Only completed payouts are exported. Rejected and pending payouts are excluded from the Excel file.</p>
         </div>
         
-        {/* Cancelled Payouts Info */}
+        {/* Data Deletion Info */}
         <div className="mt-2 text-sm text-blue-600">
-          <p>ℹ️ <strong>Note:</strong> Cancelled payouts (from previous payout cycles) are automatically hidden from this list. They are tracked in the database for audit purposes.</p>
+          <p>ℹ️ <strong>Note:</strong> When generating new payouts, all existing payouts for the current cycle are permanently deleted and replaced with new calculations.</p>
         </div>
 
         {/* Filters */}
@@ -385,7 +386,6 @@ const PayoutManagement = () => {
                 <option value="pending">Pending</option>
                 <option value="completed">Completed</option>
                 <option value="rejected">Rejected</option>
-                {/* Note: Cancelled payouts are automatically filtered out */}
               </select>
             </div>
           </div>
@@ -744,20 +744,20 @@ const PayoutManagement = () => {
                 </p>
                 
                 <ul className="text-sm text-gray-600 mb-6 space-y-2">
-                  <li>• <strong>Remove existing payouts</strong> for the current cycle</li>
+                  <li>• <strong>Delete all existing payouts</strong> for the current cycle</li>
                   <li>• Process payouts for users with KYC completed</li>
                   <li>• Apply 5% deduction to all payouts</li>
                   <li>• Reset user incomes after payout generation</li>
                   <li>• Create payout records with bank details</li>
                 </ul>
                 
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
                   <div className="flex items-center gap-2">
-                    <FaExclamationTriangle className="text-yellow-600" />
-                    <span className="text-sm font-medium text-yellow-800">Important Notice</span>
+                    <FaExclamationTriangle className="text-red-600" />
+                    <span className="text-sm font-medium text-red-800">⚠️ Data Deletion Warning</span>
                   </div>
-                  <p className="text-xs text-yellow-700 mt-1">
-                    This will cancel all existing payouts for the current cycle and generate new ones based on updated income calculations.
+                  <p className="text-xs text-red-700 mt-1">
+                    <strong>This action will permanently delete all existing payouts</strong> for the current cycle and generate new ones based on updated income calculations. This action cannot be undone.
                   </p>
                 </div>
                 

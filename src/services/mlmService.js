@@ -1682,6 +1682,77 @@ export class MLMService {
     }
   }
 
+  // Track daily promotional income with daily cap of ₹2000
+  static async trackDailyPromotionalIncome(userId, newPairs) {
+    try {
+      const userRef = doc(db, 'mlmUsers', userId);
+      const userDoc = await getDoc(userRef);
+      
+      if (!userDoc.exists()) {
+        throw new Error('MLM user not found');
+      }
+      
+      const userData = userDoc.data();
+      const today = new Date();
+      const lastReset = userData.lastDailyReset?.toDate() || new Date(0);
+      
+      // Check if daily reset is needed (every 24 hours)
+      const hoursDiff = (today - lastReset) / (1000 * 60 * 60);
+      const shouldReset = hoursDiff >= 24;
+      
+      let dailyPairs = shouldReset ? 0 : (userData.dailyPairs || 0);
+      let dailyIncome = shouldReset ? 0 : (userData.dailyIncome || 0);
+      
+      // Vedmurti Plan: ₹400 per pair, daily cap of ₹2000
+      const incomePerPair = 400;
+      const maxDailyIncome = 2000; // Daily cap of ₹2000
+      const maxDailyPairs = Math.floor(maxDailyIncome / incomePerPair); // Max 5 pairs per day
+      
+      const availablePairs = maxDailyPairs - dailyPairs;
+      const remainingDailyIncome = maxDailyIncome - dailyIncome;
+      
+      // Calculate how many pairs can be processed today
+      const processablePairs = Math.min(newPairs, availablePairs);
+      const potentialIncome = processablePairs * incomePerPair;
+      const finalIncome = Math.min(potentialIncome, remainingDailyIncome);
+      const actualPairs = Math.floor(finalIncome / incomePerPair);
+      
+      if (actualPairs > 0) {
+        const newIncome = actualPairs * incomePerPair;
+        
+        await updateDoc(userRef, {
+          promotionalIncome: increment(newIncome),
+          totalIncome: increment(newIncome),
+          dailyPairs: increment(actualPairs),
+          dailyIncome: increment(newIncome),
+          pairsCount: increment(actualPairs),
+          lastDailyReset: shouldReset ? serverTimestamp() : userData.lastDailyReset
+        });
+        
+        return {
+          processedPairs: actualPairs,
+          income: newIncome,
+          dailyPairs: dailyPairs + actualPairs,
+          dailyIncome: dailyIncome + newIncome,
+          remainingDailyIncome: Math.max(0, maxDailyIncome - (dailyIncome + newIncome)),
+          dailyCapReached: (dailyIncome + newIncome) >= maxDailyIncome
+        };
+      }
+      
+      return {
+        processedPairs: 0,
+        income: 0,
+        dailyPairs,
+        dailyIncome,
+        remainingDailyIncome: Math.max(0, maxDailyIncome - dailyIncome),
+        dailyCapReached: dailyIncome >= maxDailyIncome
+      };
+    } catch (error) {
+      console.error('Error tracking daily promotional income:', error);
+      throw error;
+    }
+  }
+
   // Recalculate and update promotional income for a user
   static async recalculatePromotionalIncome(userId) {
     try {

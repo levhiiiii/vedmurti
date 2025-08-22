@@ -59,7 +59,14 @@ export default function AffiliateDashboard({ userId }) {
   const [teamStats, setTeamStats] = useState(null);
   const [rewardHistory, setRewardHistory] = useState([]);
   const [rankInfo, setRankInfo] = useState(null);
-  const [dailyLimits, setDailyLimits] = useState(null);
+  const [dailyLimits, setDailyLimits] = useState({
+    dailyPairs: 0,
+    dailyIncome: 0,
+    maxDailyPairs: 5,
+    maxDailyIncome: 2000,
+    remainingPairs: 5,
+    remainingIncome: 2000
+  });
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(null);
@@ -212,17 +219,15 @@ export default function AffiliateDashboard({ userId }) {
         setMlmData(mlmUserData);
         
         // Calculate daily limits
-        if (mlmUserData) {
           const limits = {
-            dailyPairs: mlmUserData.dailyPairs || 0,
-            dailyIncome: mlmUserData.dailyIncome || 0,
-            maxDailyPairs: 400,
+          dailyPairs: mlmUserData?.dailyPairs || 0,
+          dailyIncome: mlmUserData?.dailyIncome || 0,
+          maxDailyPairs: 5, // Maximum 5 pairs per day (₹2000 ÷ ₹400)
             maxDailyIncome: 2000,
-            remainingPairs: Math.max(0, 400 - (mlmUserData.dailyPairs || 0)),
-            remainingIncome: Math.max(0, 2000 - (mlmUserData.dailyIncome || 0))
+          remainingPairs: Math.max(0, 5 - (mlmUserData?.dailyPairs || 0)),
+          remainingIncome: Math.max(0, 2000 - (mlmUserData?.dailyIncome || 0))
           };
           setDailyLimits(limits);
-        }
       } catch (mlmError) {
   
       }
@@ -301,8 +306,8 @@ export default function AffiliateDashboard({ userId }) {
         }).length;
         setTodayReferrals(todayReferralsCount);
         
-              // Calculate sell count through downlines (placeholder)
-      setSellCount(referralsData.filter(ref => ref.affiliateStatus).length * 2);
+        // Calculate sell count through downlines (placeholder)
+        setSellCount(referralsData.filter(ref => ref.affiliateStatus).length * 2);
       
       // Calculate team counts for all referrals
       const referralCounts = {};
@@ -313,7 +318,7 @@ export default function AffiliateDashboard({ userId }) {
         }
       }
       setReferralTeamCounts(referralCounts);
-    }
+      }
       // Fetch all downlines recursively - Only approved users
       let totalDownlines = [];
       if (userData.referralCode) {
@@ -402,25 +407,8 @@ export default function AffiliateDashboard({ userId }) {
         setCalculatedPromotionalIncome(promotionalIncome);
         setTotalPairs(teamBasedPairs);
         
-        // Log for debugging
-        console.log('Team-based pairs calculation:', {
-          userId: user.uid,
-          referralCode: user.referralCode,
-          leftTeamCount: leftTeamCount,
-          rightTeamCount: rightTeamCount,
-          teamBasedPairs: teamBasedPairs,
-          promotionalIncome: promotionalIncome
-        });
 
-        // Also log detailed team structure
-        console.log('Team structure details:', {
-          leftDownline: user.leftDownLine,
-          rightDownline: user.rightDownLine,
-          affiliateStatus: user.affiliateStatus,
-          totalPairs: teamBasedPairs
-        });
       } catch (error) {
-        console.log('Error calculating team-based pairs:', error);
         setCalculatedPromotionalIncome(0);
         setTotalPairs(0);
       }
@@ -481,14 +469,9 @@ export default function AffiliateDashboard({ userId }) {
           setCalculatedPromotionalIncome(income);
         }
         
-        console.log('Simple pair calculation:', {
-          leftCount,
-          rightCount,
-          pairs,
-          income
-        });
+
       } catch (error) {
-        console.log('Error in simple pair calculation:', error);
+        // Silent error handling
       }
     };
 
@@ -526,7 +509,6 @@ export default function AffiliateDashboard({ userId }) {
           // Check payment status - exclude pending and rejected users from pair calculations
           const paymentStatus = userData.paymentStatus || userData.paymentRequestStatus || 'pending';
           if (paymentStatus === 'pending' || paymentStatus === 'rejected') {
-            console.log(`Excluding ${paymentStatus} user from pair calculation: ${referralCode}`);
             return;
           }
           
@@ -580,24 +562,14 @@ export default function AffiliateDashboard({ userId }) {
       // Calculate pairs using MLMNetwork logic
       const completePairs = usersData.filter(u => u.leftDownlineExists && u.rightDownlineExists).length;
       
-      console.log('=== MLMNETWORK PAIR ANALYSIS ===');
-      console.log('All network members:', usersData);
-      console.log('Users with existing left downlines:', usersData.filter(u => u.leftDownlineExists));
-      console.log('Users with existing right downlines:', usersData.filter(u => u.rightDownlineExists));
-      console.log('Complete pairs (both downlines exist):', usersData.filter(u => u.leftDownlineExists && u.rightDownlineExists));
-      console.log('Total complete pairs found:', completePairs);
-      console.log('Total users in network:', usersData.length);
-      console.log('=== END MLMNETWORK ANALYSIS ===');
-      
       // Update state with MLMNetwork pair count
       if (completePairs > 0) {
-        console.log('Updating pair count from MLMNetwork logic:', completePairs);
         setTotalPairs(completePairs);
         setCalculatedPromotionalIncome(completePairs * 400);
       }
       
     } catch (error) {
-      console.log('Error in MLMNetwork pair counting:', error);
+      // Silent error handling
     }
   };
 
@@ -647,22 +619,14 @@ export default function AffiliateDashboard({ userId }) {
         }
       });
       
-      console.log('=== FILTERED PAIR ANALYSIS ===');
-      console.log('All approved users in network:', allUserDetails);
-      console.log('Approved users with both downlines:', pairDetails);
-      console.log('Total approved pairs found:', totalPairs);
-      console.log('Total approved users in network:', allUsers.length);
-      console.log('=== END FILTERED ANALYSIS ===');
-      
       // Update state with the accurate count
       if (totalPairs > 0) {
-        console.log('Updating pair count from filtered calculation:', totalPairs);
         setTotalPairs(totalPairs);
         setCalculatedPromotionalIncome(totalPairs * 400);
       }
       
     } catch (error) {
-      console.log('Error in filtered pair counting:', error);
+      // Silent error handling
     }
   };
 
@@ -696,18 +660,11 @@ export default function AffiliateDashboard({ userId }) {
         
         const mentorshipIncome = mentorshipPairs * 100; // ₹100 per pair
         
-        console.log('=== TEAM-BASED MENTORSHIP INCOME CALCULATION ===');
-        console.log('Left team count:', leftTeamCount);
-        console.log('Right team count:', rightTeamCount);
-        console.log('Team-based total pairs:', teamBasedTotalPairs);
-        console.log('Mentorship pairs (total - 1):', mentorshipPairs);
-        console.log('Mentorship income:', mentorshipIncome);
-        console.log('=== END MENTORSHIP CALCULATION ===');
+
         
         setDownlinePairs(mentorshipPairs);
         setCalculatedMentorshipIncome(mentorshipIncome);
       } catch (error) {
-        console.log('Error in team-based mentorship income calculation:', error);
         setCalculatedMentorshipIncome(0);
         setCalculatedMentorshipIncome(0);
         setDownlinePairs(0);
@@ -748,13 +705,7 @@ export default function AffiliateDashboard({ userId }) {
     
     setCalculatedRewards({ total, pairs: teamBasedPairs, slab });
     
-    console.log('=== TEAM-BASED REWARDS CALCULATION ===');
-    console.log('Left team count:', leftTeamCount);
-    console.log('Right team count:', rightTeamCount);
-    console.log('Team-based pairs:', teamBasedPairs);
-    console.log('Rewards total:', total);
-    console.log('Rewards slab:', slab);
-    console.log('=== END REWARDS CALCULATION ===');
+
   }, [leftTeamCount, rightTeamCount]);
 
   // Calculate total income from all sources using team-based pairs
@@ -775,16 +726,23 @@ export default function AffiliateDashboard({ userId }) {
     setCalculatedMentorshipIncome(mentorshipIncome);
     setTotalIncome(total);
     
-    console.log('=== TOTAL INCOME CALCULATION ===');
-    console.log('Left team count:', leftTeamCount);
-    console.log('Right team count:', rightTeamCount);
-    console.log('Team pairs:', Math.min(leftTeamCount, rightTeamCount));
-    console.log('Promotional income:', promotionalIncome);
-    console.log('Mentorship income:', mentorshipIncome);
-    console.log('Rewards income:', rewardsIncome);
-    console.log('Total income:', total);
-    console.log('=== END TOTAL INCOME CALCULATION ===');
+
   }, [leftTeamCount, rightTeamCount, calculatedRewards.total]);
+
+  // Update daily limits when user or MLM data changes
+  useEffect(() => {
+    if (user && mlmData) {
+      const limits = {
+        dailyPairs: mlmData.dailyPairs || 0,
+        dailyIncome: mlmData.dailyIncome || 0,
+        maxDailyPairs: 5, // Maximum 5 pairs per day (₹2000 ÷ ₹400)
+        maxDailyIncome: 2000,
+        remainingPairs: Math.max(0, 5 - (mlmData.dailyPairs || 0)),
+        remainingIncome: Math.max(0, 2000 - (mlmData.dailyIncome || 0))
+      };
+      setDailyLimits(limits);
+    }
+  }, [user, mlmData]);
 
   // Debug: Monitor income changes
   useEffect(() => {
@@ -801,35 +759,13 @@ export default function AffiliateDashboard({ userId }) {
     const db = getFirestore(app);
     const bankAccountsRef = collection(db, 'bankAccounts');
     
-    // Try with orderBy first
-    const q = query(
-      bankAccountsRef, 
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const accounts = [];
-      snapshot.forEach((doc) => {
-        accounts.push({
-          id: doc.id,
-          ...doc.data()
-        });
-      });
-      setBankAccounts(accounts);
-      setBankAccountsLoading(false);
-    }, (error) => {
-      console.error('Error fetching bank accounts:', error);
-      
-      // If it's an index error, try without orderBy
-      if (error.code === 'failed-precondition') {
-
+    // Start with simple query to avoid index errors
         const simpleQuery = query(
           bankAccountsRef, 
           where('userId', '==', userId)
         );
         
-        const simpleUnsubscribe = onSnapshot(simpleQuery, (snapshot) => {
+    const unsubscribe = onSnapshot(simpleQuery, (snapshot) => {
           const accounts = [];
           snapshot.forEach((doc) => {
             accounts.push({
@@ -837,23 +773,20 @@ export default function AffiliateDashboard({ userId }) {
               ...doc.data()
             });
           });
-          // Sort manually since we can't use orderBy
+      
+      // Sort manually by createdAt (newest first)
           accounts.sort((a, b) => {
             const dateA = a.createdAt?.toDate?.() || new Date(a.createdAt) || new Date(0);
             const dateB = b.createdAt?.toDate?.() || new Date(b.createdAt) || new Date(0);
             return dateB - dateA;
           });
+      
           setBankAccounts(accounts);
           setBankAccountsLoading(false);
-        }, (simpleError) => {
-          console.error('Error with simple query:', simpleError);
+    }, (error) => {
+      console.error('Error fetching bank accounts:', error);
           setBankAccountsLoading(false);
-        });
-        
-        return () => simpleUnsubscribe();
-      } else {
-        setBankAccountsLoading(false);
-      }
+      setBankAccounts([]);
     });
 
     return () => unsubscribe();
@@ -934,8 +867,9 @@ export default function AffiliateDashboard({ userId }) {
       
       // Refresh bank accounts
       if (userId) {
+        try {
         const bankAccountsRef = collection(getFirestore(app), 'bankAccounts');
-        const bankQuery = query(bankAccountsRef, where('userId', '==', userId), orderBy('createdAt', 'desc'));
+          const bankQuery = query(bankAccountsRef, where('userId', '==', userId));
         const bankSnapshot = await getDocs(bankQuery);
         const accounts = [];
         bankSnapshot.forEach((doc) => {
@@ -944,7 +878,19 @@ export default function AffiliateDashboard({ userId }) {
             ...doc.data()
           });
         });
+          
+          // Sort manually by createdAt (newest first)
+          accounts.sort((a, b) => {
+            const dateA = a.createdAt?.toDate?.() || new Date(a.createdAt) || new Date(0);
+            const dateB = b.createdAt?.toDate?.() || new Date(b.createdAt) || new Date(0);
+            return dateB - dateA;
+          });
+          
         setBankAccounts(accounts);
+        } catch (bankError) {
+          console.error('Error refreshing bank accounts:', bankError);
+          // Continue with other refresh operations even if bank accounts fail
+        }
       }
       
     } catch (error) {
@@ -1313,6 +1259,38 @@ export default function AffiliateDashboard({ userId }) {
           </div>
         </div>
 
+        {/* Tab Navigation */}
+        <div className="mb-8">
+          <div className="flex flex-wrap gap-2 border-b border-gray-200">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`px-6 py-3 text-sm font-medium rounded-t-lg transition-all duration-200 ${
+                activeTab === 'overview'
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-white text-gray-600 hover:bg-gray-50 hover:text-blue-600'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <MdDashboard className="text-lg" />
+                Overview
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('direct-referrals')}
+              className={`px-6 py-3 text-sm font-medium rounded-t-lg transition-all duration-200 ${
+                activeTab === 'direct-referrals'
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-white text-gray-600 hover:bg-gray-50 hover:text-blue-600'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <FaUsers className="text-lg" />
+                Direct Referrals
+              </div>
+            </button>
+          </div>
+        </div>
+
         {/* Tab Content */}
         <AnimatePresence mode="wait">
           {activeTab === 'overview' && (
@@ -1358,6 +1336,121 @@ export default function AffiliateDashboard({ userId }) {
                   </div>
                 </div>
               </div>
+
+              {/* Daily Cap Notice */}
+              <div className="mb-6">
+                <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-4 rounded-2xl text-white shadow-lg">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <FaExclamationTriangle className="text-xl" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-lg">Daily Cap System</h4>
+                      <p className="text-amber-100 text-sm">Fair distribution for all users</p>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-white/20 rounded-lg p-3 text-center">
+                      <div className="text-lg font-bold text-amber-100">₹2000</div>
+                      <div className="text-xs text-amber-200">Daily Promotional Income Cap</div>
+                      <div className="text-xs text-amber-300 mt-1">
+                        Today: ₹{dailyLimits.dailyIncome} / ₹2000
+                      </div>
+                    </div>
+                    <div className="bg-white/20 rounded-lg p-3 text-center">
+                      <div className="text-lg font-bold text-amber-100">5 Pairs</div>
+                      <div className="text-xs text-amber-200">Maximum Pairs Per Day</div>
+                      <div className="text-xs text-amber-300 mt-1">
+                        {dailyLimits.dailyPairs} / 5 pairs used
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 p-3 bg-white/20 rounded-lg">
+                    <div className="text-sm text-amber-100 font-semibold mb-1">
+                      💡 How It Works
+                    </div>
+                    <div className="text-xs text-amber-200">
+                      You can earn up to ₹2000 per day from promotional income (5 pairs maximum). 
+                      This ensures fair distribution and prevents excessive daily earnings. 
+                      <span className="font-semibold">Mentorship income and rewards are NOT affected by daily caps.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mandatory Requirements Check */}
+              <div className="mb-6">
+                <div className={`p-4 rounded-2xl text-white shadow-lg ${
+                  user?.leftDownLine && user?.rightDownLine 
+                    ? 'bg-gradient-to-r from-green-500 to-green-600' 
+                    : 'bg-gradient-to-r from-red-500 to-red-600'
+                }`}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      {user?.leftDownLine && user?.rightDownLine ? (
+                        <FaCheck className="text-xl" />
+                      ) : (
+                        <FaExclamationTriangle className="text-xl" />
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-lg">
+                        {user?.leftDownLine && user?.rightDownLine ? '✅ Requirements Met' : '⚠️ Mandatory Requirements'}
+                      </h4>
+                      <p className={`text-sm ${user?.leftDownLine && user?.rightDownLine ? 'text-green-100' : 'text-red-100'}`}>
+                        {user?.leftDownLine && user?.rightDownLine 
+                          ? 'You have met all requirements for full affiliate access' 
+                          : 'You need to meet minimum requirements for full affiliate access'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                    {/* Left Side Requirement */}
+                    <div className={`rounded-lg p-3 text-center ${
+                      user?.leftDownLine ? 'bg-green-500/20 border border-green-400' : 'bg-red-500/20 border border-red-400'
+                    }`}>
+                      <div className="text-lg font-bold mb-1">
+                        {user?.leftDownLine ? '✅' : '❌'}
+                      </div>
+                      <div className="text-sm font-semibold">Left Side Direct Referral</div>
+                      <div className="text-xs mt-1">
+                        {user?.leftDownLine ? 'Requirement Met' : 'Need at least 1 direct referral'}
+                      </div>
+                    </div>
+                    
+                    {/* Right Side Requirement */}
+                    <div className={`rounded-lg p-3 text-center ${
+                      user?.rightDownLine ? 'bg-green-500/20 border border-green-400' : 'bg-red-500/20 border border-red-400'
+                    }`}>
+                      <div className="text-lg font-bold mb-1">
+                        {user?.rightDownLine ? '✅' : '❌'}
+                      </div>
+                      <div className="text-sm font-semibold">Right Side Direct Referral</div>
+                      <div className="text-xs mt-1">
+                        {user?.rightDownLine ? 'Requirement Met' : 'Need at least 1 direct referral'}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {!(user?.leftDownLine && user?.rightDownLine) && (
+                    <div className="bg-white/20 rounded-lg p-3">
+                      <div className="text-sm font-semibold mb-2">
+                        🔒 Why This Requirement Exists
+                      </div>
+                      <div className="text-xs space-y-1">
+                        <p><strong>Fair Distribution:</strong> Ensures balanced network building on both sides</p>
+                        <p><strong>System Integrity:</strong> Prevents gaming of the binary MLM structure</p>
+                        <p><strong>Network Growth:</strong> Encourages genuine network development</p>
+                        <p><strong>Next Steps:</strong> Focus on referring people to both sides of your binary tree</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
               
               {/* Key Metrics Cards - Vedmurti Plan */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
@@ -1398,7 +1491,7 @@ export default function AffiliateDashboard({ userId }) {
                     </div>
                     <div className="text-right">
                       <p className="text-emerald-100 text-sm">Promotional Income</p>
-                      <p className="text-xl font-bold">₹{(Math.min(leftTeamCount, rightTeamCount) * 400).toFixed(2)}</p>
+                      <p className="text-xl font-bold">₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(2)}</p>
                     </div>
                   </div>
                   
@@ -1412,6 +1505,21 @@ export default function AffiliateDashboard({ userId }) {
                     </div>
                   </div>
                   
+                  {/* Daily Cap Information */}
+                  <div className="bg-white/20 rounded-lg p-2 mb-2 text-center">
+                    <div className="text-xs text-emerald-200 mb-1">
+                      Daily Cap: ₹2000
+                    </div>
+                    <div className="text-xs text-emerald-100">
+                      Today: ₹{dailyLimits.dailyIncome} / ₹2000
+                    </div>
+                    {dailyLimits.dailyIncome >= 2000 && (
+                      <div className="text-xs text-yellow-300 font-semibold mt-1">
+                        ⚠️ Daily Cap Reached
+                      </div>
+                    )}
+                  </div>
+                  
                   <div className="flex items-center gap-2 text-emerald-100 mt-2">
                     <FaBullhorn className="text-sm" />
                     <span className="text-xs">From Team Pairs</span>
@@ -1419,11 +1527,16 @@ export default function AffiliateDashboard({ userId }) {
                   <div className="mt-2 bg-white/20 rounded-full h-2">
                     <div 
                       className="bg-white rounded-full h-2 transition-all duration-300"
-                      style={{ width: `${Math.min((totalPairs || 0) / 400 * 100, 100)}%` }}
+                      style={{ width: `${Math.min((dailyLimits.dailyIncome) / 2000 * 100, 100)}%` }}
                     ></div>
                   </div>
-                  <div className="text-xs text-emerald-200 mt-1 text-center">
-                    {Math.min(leftTeamCount, rightTeamCount)} pairs × ₹400 = ₹{(Math.min(leftTeamCount, rightTeamCount) * 400).toFixed(2)}
+                                      <div className="text-xs text-emerald-200 mt-1 text-center">
+                      {Math.min(leftTeamCount, rightTeamCount)} pairs × ₹400 = ₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(2)}
+                      {dailyLimits.dailyIncome >= 2000 && (
+                        <span className="block text-yellow-300 font-semibold">
+                          (Daily cap reached)
+                        </span>
+                      )}
                   </div>
                 </motion.div>
 
@@ -1482,7 +1595,7 @@ export default function AffiliateDashboard({ userId }) {
                     </div>
                     <div className="text-right">
                       <p className="text-orange-100 text-sm">Total Income</p>
-                      <p className="text-xl font-bold">₹{((Math.min(leftTeamCount, rightTeamCount) * 400) + (Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100)).toFixed(2)}</p>
+                      <p className="text-xl font-bold">₹{(Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000) + (Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100)).toFixed(2)}</p>
                     </div>
                   </div>
                   
@@ -1546,206 +1659,65 @@ export default function AffiliateDashboard({ userId }) {
 
 
 
-              {/* Direct Referrals List Section */}
-              <div className="mb-8">
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-2xl text-white shadow-lg"
-                >
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-3">
+              
+
+              {/* Team Breakdown Section */}
+              {user?.leftDownLine && user?.rightDownLine ? (
+                <div className="mb-8">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                    className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg"
+                  >
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
                       <div className="p-3 bg-white/20 rounded-xl">
-                        <FaUsers className="text-2xl" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-semibold">Direct Referrals</h3>
-                        <p className="text-blue-100 text-sm">People you directly referred to the network</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-3xl font-bold">{directDownlineCount}</div>
-                      <div className="text-blue-200 text-sm">Total Referrals</div>
-                    </div>
-                  </div>
-                  
-                  {referrals.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {referrals.map((referral, index) => (
-                        <div key={referral.id} className="bg-white/10 rounded-xl p-4 border border-white/20">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-3">
-                              {referral.profilePic ? (
-                                <img 
-                                  src={referral.profilePic} 
-                                  alt={referral.name} 
-                                  className="h-10 w-10 rounded-full object-cover border-2 border-blue-200"
-                                />
-                              ) : (
-                                <div className="h-10 w-10 rounded-full bg-gradient-to-r from-blue-400 to-blue-500 flex items-center justify-center">
-                                  <span className="text-white font-semibold">
-                                    {referral.name?.charAt(0).toUpperCase() || 'U'}
+                          <RiTeamFill className="text-2xl" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-semibold">Team Breakdown</h3>
+                          <p className="text-indigo-100 text-sm">Left vs Right team distribution</p>
+                          
+                          {/* Priority Indicator */}
+                          {leftTeamCount + rightTeamCount > 0 && leftTeamCount !== rightTeamCount && (
+                            <div className="mt-2 flex items-center gap-2">
+                              {leftTeamCount < rightTeamCount ? (
+                                <>
+                                  <span className="px-2 py-1 bg-yellow-500 text-yellow-900 text-xs font-bold rounded-full animate-pulse">
+                                    ⬅️ Build LEFT Team
                                   </span>
-                                </div>
+                                  <span className="text-yellow-200 text-xs">
+                                    Need {rightTeamCount - leftTeamCount} more to balance
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="px-2 py-1 bg-yellow-500 text-yellow-900 text-xs font-bold rounded-full animate-pulse">
+                                    ➡️ Build RIGHT Team
+                                  </span>
+                                  <span className="text-yellow-200 text-xs">
+                                    Need {leftTeamCount - rightTeamCount} more to balance
+                                  </span>
+                                </>
                               )}
-                              <div>
-                                <h4 className="font-semibold text-white">{referral.name || 'Unknown'}</h4>
-                                <p className="text-xs text-blue-200">ID: {referral.referralCode || 'N/A'}</p>
-                              </div>
                             </div>
-                            <div className="text-right">
-                              <div className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                referral.affiliateStatus 
-                                  ? 'bg-green-500 text-green-900' 
-                                  : 'bg-yellow-500 text-yellow-900'
-                              }`}>
-                                {referral.affiliateStatus ? 'Active' : 'Pending'}
-                              </div>
-                            </div>
-                          </div>
+                          )}
                           
-                          <div className="space-y-2 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-blue-200">Email:</span>
-                              <span className="text-white">{referral.email || 'N/A'}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-blue-200">Join Date:</span>
-                              <span className="text-white">
-                                {referral.joinDate?.toDate?.()?.toLocaleDateString() || 
-                                 referral.createdAt?.toDate?.()?.toLocaleDateString() || 
-                                 'N/A'}
+                          {leftTeamCount + rightTeamCount > 0 && leftTeamCount === rightTeamCount && (
+                            <div className="mt-2">
+                              <span className="px-2 py-1 bg-green-500 text-green-900 text-xs font-bold rounded-full">
+                                🎯 Teams are Balanced!
                               </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-blue-200">Payment Status:</span>
-                              <span className={`font-semibold ${
-                                referral.paymentRequestStatus === 'approved' 
-                                  ? 'text-green-300' 
-                                  : referral.paymentRequestStatus === 'pending'
-                                  ? 'text-yellow-300'
-                                  : 'text-red-300'
-                              }`}>
-                                {referral.paymentRequestStatus || 'Pending'}
-                              </span>
-                            </div>
-                          </div>
-                          
-                          {/* Team Structure Display */}
-                          <div className="mt-3 pt-3 border-t border-white/20">
-                            <div className="text-center mb-2">
-                              <span className="text-xs text-blue-200">Team Structure</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="bg-white/10 rounded-lg p-2 text-center">
-                                <div className="text-lg font-bold text-blue-300">{referralTeamCounts[referral.referralCode]?.left || 0}</div>
-                                <div className="text-xs text-blue-200">Left Team</div>
-                              </div>
-                              <div className="bg-white/10 rounded-lg p-2 text-center">
-                                <div className="text-lg font-bold text-green-300">{referralTeamCounts[referral.referralCode]?.right || 0}</div>
-                                <div className="text-xs text-green-200">Right Team</div>
-                              </div>
-                            </div>
-                            <div className="mt-2 text-center">
-                              <div className="text-xs text-blue-200 mb-1">Pairs Formed:</div>
-                              <div className="text-sm font-semibold text-yellow-300">
-                                {Math.min(referralTeamCounts[referral.referralCode]?.left || 0, referralTeamCounts[referral.referralCode]?.right || 0)} pairs
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {referral.affiliateStatus && (
-                            <div className="mt-3 pt-3 border-t border-white/20">
-                              <div className="text-center">
-                                <div className="text-xs text-blue-200 mb-1">Contributes to your</div>
-                                <div className="text-sm font-semibold text-green-300">
-                                  Mentorship Income: ₹{Math.min(referralTeamCounts[referral.referralCode]?.left || 0, referralTeamCounts[referral.referralCode]?.right || 0) * 100}
-                                </div>
-                                <div className="text-xs text-blue-200 mt-1">
-                                  ({Math.min(referralTeamCounts[referral.referralCode]?.left || 0, referralTeamCounts[referral.referralCode]?.right || 0)} pairs × ₹100)
-                                </div>
-                              </div>
                             </div>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <div className="text-6xl mb-4">👥</div>
-                      <h4 className="text-lg font-semibold mb-2">No Direct Referrals Yet</h4>
-                      <p className="text-blue-200 text-sm mb-4">
-                        Start referring people to build your network and earn mentorship income!
-                      </p>
-                      <button
-                        onClick={copyReferralLink}
-                        className="px-4 py-2 bg-white text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-semibold"
-                      >
-                        <FaCopy className="inline-block mr-2" />
-                        Copy Referral Link
-                      </button>
-                    </div>
-                  )}
-                </motion.div>
-              </div>
-
-              {/* Team Breakdown Section */}
-              <div className="mb-8">
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5 }}
-                  className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg"
-                >
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-3">
-                    <div className="p-3 bg-white/20 rounded-xl">
-                        <RiTeamFill className="text-2xl" />
                       </div>
-                      <div>
-                        <h3 className="text-xl font-semibold">Team Breakdown</h3>
-                        <p className="text-indigo-100 text-sm">Left vs Right team distribution</p>
-                        
-                        {/* Priority Indicator */}
-                        {leftTeamCount + rightTeamCount > 0 && leftTeamCount !== rightTeamCount && (
-                          <div className="mt-2 flex items-center gap-2">
-                            {leftTeamCount < rightTeamCount ? (
-                              <>
-                                <span className="px-2 py-1 bg-yellow-500 text-yellow-900 text-xs font-bold rounded-full animate-pulse">
-                                  ⬅️ Build LEFT Team
-                                </span>
-                                <span className="text-yellow-200 text-xs">
-                                  Need {rightTeamCount - leftTeamCount} more to balance
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <span className="px-2 py-1 bg-yellow-500 text-yellow-900 text-xs font-bold rounded-full animate-pulse">
-                                  ➡️ Build RIGHT Team
-                                </span>
-                                <span className="text-yellow-200 text-xs">
-                                  Need {leftTeamCount - rightTeamCount} more to balance
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        )}
-                        
-                        {leftTeamCount + rightTeamCount > 0 && leftTeamCount === rightTeamCount && (
-                          <div className="mt-2">
-                            <span className="px-2 py-1 bg-green-500 text-green-900 text-xs font-bold rounded-full">
-                              🎯 Teams are Balanced!
-                            </span>
-                          </div>
-                        )}
+                      <div className="text-right">
+                        <div className="text-3xl font-bold">{leftTeamCount + rightTeamCount}</div>
+                        <div className="text-indigo-200 text-sm">Total Team</div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-3xl font-bold">{leftTeamCount + rightTeamCount}</div>
-                      <div className="text-indigo-200 text-sm">Total Team</div>
-                    </div>
-                  </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Left Team */}
@@ -1978,15 +1950,47 @@ export default function AffiliateDashboard({ userId }) {
                   </div>
                 </motion.div>
               </div>
+              ) : (
+                <div className="mb-8">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                    className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-2xl text-white shadow-lg"
+                  >
+                    <div className="text-center py-8">
+                      <div className="text-6xl mb-4">🔒</div>
+                      <h4 className="text-lg font-semibold mb-2">Team Breakdown Locked</h4>
+                      <p className="text-amber-200 text-sm mb-4">
+                        You need to meet the mandatory requirements to access team breakdown information.
+                      </p>
+                      <div className="bg-white/10 rounded-lg p-4 text-left">
+                        <div className="text-sm font-semibold mb-2">Required:</div>
+                        <div className="space-y-1 text-xs text-amber-200">
+                          <div className="flex items-center gap-2">
+                            <span>{user?.leftDownLine ? '✅' : '❌'}</span>
+                            <span>Left Side Direct Referral</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span>{user?.rightDownLine ? '✅' : '❌'}</span>
+                            <span>Right Side Direct Referral</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
 
               {/* Pairs Matching Analysis Section */}
-              <div className="mb-8">
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.6 }}
-                  className="bg-gradient-to-r from-emerald-500 to-teal-600 p-6 rounded-2xl text-white shadow-lg"
-                >
+              {user?.leftDownLine && user?.rightDownLine ? (
+                <div className="mb-8">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.6 }}
+                    className="bg-gradient-to-r from-emerald-500 to-teal-600 p-6 rounded-2xl text-white shadow-lg"
+                  >
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                     <div className="p-3 bg-white/20 rounded-xl">
@@ -2065,16 +2069,16 @@ export default function AffiliateDashboard({ userId }) {
                       </div>
                       <div className="flex justify-between">
                         <span>Promotional income:</span>
-                        <span className="font-semibold">₹{(Math.min(leftTeamCount, rightTeamCount) * 400).toFixed(0)}</span>
+                        <span className="font-semibold">₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(0)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Mentorship income:</span>
-                        <span className="font-semibold">₹{Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1) * 100}</span>
+                        <span className="font-semibold">₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}</span>
                       </div>
                       <div className="border-t border-emerald-300/30 pt-1 mt-1">
                         <div className="flex justify-between font-semibold">
                           <span>Total income:</span>
-                          <span className="text-lg">₹{totalIncome.toFixed(0)}</span>
+                          <span className="text-lg">₹{(Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000) + (Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100)).toFixed(0)}</span>
                         </div>
                       </div>
                     </div>
@@ -2106,7 +2110,12 @@ export default function AffiliateDashboard({ userId }) {
                           <div className="text-xs text-emerald-800">Pairs Formed</div>
                         </div>
                         <div className="text-xs text-emerald-200">
-                          ₹{Math.min(leftTeamCount, rightTeamCount) * 400}
+                          ₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000)}
+                          {Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000) < (Math.min(leftTeamCount, rightTeamCount) * 400) && (
+                            <span className="block text-yellow-300 font-semibold text-xs">
+                              (Capped)
+                            </span>
+                          )}
                         </div>
                       </div>
                       
@@ -2136,6 +2145,18 @@ export default function AffiliateDashboard({ userId }) {
                     </div>
                   </div>
                   
+                  {/* Daily Cap Notice */}
+                  <div className="bg-amber-500/20 rounded-lg p-3 mb-4 border border-amber-400">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-amber-300 text-lg">⚠️</span>
+                      <span className="font-semibold text-amber-100">Daily Cap System</span>
+                    </div>
+                    <div className="text-sm text-amber-200">
+                      <strong>Promotional Income:</strong> Limited to ₹2000 per day (5 pairs maximum). 
+                      <strong>Mentorship Income:</strong> No daily cap - unlimited earnings from direct referrals' networks.
+                    </div>
+                  </div>
+
                   {/* Comprehensive Income Breakdown */}
                   <div className="bg-white/10 rounded-xl p-4 mb-4">
                     <h4 className="font-semibold text-lg mb-3">Income Breakdown from Matched Pairs</h4>
@@ -2144,10 +2165,15 @@ export default function AffiliateDashboard({ userId }) {
                       <div className="bg-blue-500/20 rounded-lg p-3">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-semibold text-blue-200">Promotional Income</span>
-                          <span className="text-lg font-bold text-blue-100">₹{(Math.min(leftTeamCount, rightTeamCount) * 400).toFixed(0)}</span>
+                          <span className="text-lg font-bold text-blue-100">₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(0)}</span>
                         </div>
                         <div className="text-xs text-blue-200">
-                          {Math.min(leftTeamCount, rightTeamCount)} pairs × ₹400 = ₹{(Math.min(leftTeamCount, rightTeamCount) * 400).toFixed(0)}
+                          {Math.min(leftTeamCount, rightTeamCount)} pairs × ₹400 = ₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(0)}
+                          {Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000) < (Math.min(leftTeamCount, rightTeamCount) * 400) && (
+                            <span className="block text-yellow-300 font-semibold">
+                              (Daily cap applied)
+                            </span>
+                          )}
                         </div>
                       </div>
                       
@@ -2155,10 +2181,10 @@ export default function AffiliateDashboard({ userId }) {
                       <div className="bg-teal-500/20 rounded-lg p-3">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-semibold text-teal-200">Mentorship Income</span>
-                          <span className="text-lg font-bold text-teal-100">₹{Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1) * 100}</span>
+                          <span className="text-lg font-bold text-teal-100">₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}</span>
                         </div>
                         <div className="text-xs text-teal-200">
-                          {Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1)} pairs × ₹100 = ₹{Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1) * 100}
+                          {Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0)} matched pairs × ₹100 = ₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}
                         </div>
                       </div>
                     </div>
@@ -2167,10 +2193,10 @@ export default function AffiliateDashboard({ userId }) {
                     <div className="mt-4 p-3 bg-emerald-500/20 rounded-lg border border-emerald-400">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-emerald-100 text-lg">Total Income from Pairs</span>
-                        <span className="text-2xl font-bold text-emerald-100">₹{totalIncome.toFixed(0)}</span>
+                        <span className="text-2xl font-bold text-emerald-100">₹{(Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000) + (Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100)).toFixed(0)}</span>
                       </div>
                       <div className="text-sm text-emerald-200 mt-1">
-                        Promotional: ₹{(Math.min(leftTeamCount, rightTeamCount) * 400).toFixed(0)} + Mentorship: ₹{Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1) * 100}
+                        Promotional: ₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(0)} + Mentorship: ₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}
                       </div>
                     </div>
                   </div>
@@ -2189,12 +2215,12 @@ export default function AffiliateDashboard({ userId }) {
                           {leftTeamCount < rightTeamCount ? (
                             <div className="flex items-center gap-2 text-yellow-200">
                               <span className="text-lg">⬅️</span>
-                              <span><strong>Priority:</strong> Build your LEFT team. Adding {rightTeamCount - leftTeamCount} more members will create {rightTeamCount - leftTeamCount} additional pairs worth ₹{(rightTeamCount - leftTeamCount) * 400}.</span>
+                              <span><strong>Priority:</strong> Build your LEFT team. Adding {rightTeamCount - leftTeamCount} more members will create {rightTeamCount - leftTeamCount} additional pairs worth ₹{Math.min((rightTeamCount - leftTeamCount) * 400, 2000)} (daily cap: ₹2000).</span>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2 text-yellow-200">
                               <span className="text-lg">➡️</span>
-                              <span><strong>Priority:</strong> Build your RIGHT team. Adding {leftTeamCount - rightTeamCount} more members will create {leftTeamCount - rightTeamCount} additional pairs worth ₹{(leftTeamCount - rightTeamCount) * 400}.</span>
+                              <span><strong>Priority:</strong> Build your RIGHT team. Adding {leftTeamCount - rightTeamCount} more members will create {leftTeamCount - rightTeamCount} additional pairs worth ₹{Math.min((leftTeamCount - rightTeamCount) * 400, 2000)} (daily cap: ₹2000).</span>
                             </div>
                           )}
                           <div className="flex items-center gap-2 text-blue-200">
@@ -2212,15 +2238,47 @@ export default function AffiliateDashboard({ userId }) {
                   </div>
                 </motion.div>
               </div>
+              ) : (
+                <div className="mb-8">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.6 }}
+                    className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-2xl text-white shadow-lg"
+                  >
+                    <div className="text-center py-8">
+                      <div className="text-6xl mb-4">🔒</div>
+                      <h4 className="text-lg font-semibold mb-2">Pairs Matching Analysis Locked</h4>
+                      <p className="text-amber-200 text-sm mb-4">
+                        You need to meet the mandatory requirements to access pairs matching analysis.
+                      </p>
+                      <div className="bg-white/10 rounded-lg p-4 text-left">
+                        <div className="text-sm font-semibold mb-2">Required:</div>
+                        <div className="space-y-1 text-xs text-amber-200">
+                          <div className="flex items-center gap-2">
+                            <span>{user?.leftDownLine ? '✅' : '❌'}</span>
+                            <span>Left Side Direct Referral</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span>{user?.rightDownLine ? '✅' : '❌'}</span>
+                            <span>Right Side Direct Referral</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
 
               {/* Debug Network Information */}
-              <div className="mb-8">
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.8 }}
-                  className="bg-gradient-to-br from-gray-500 to-gray-600 p-6 rounded-2xl text-white shadow-lg"
-                >
+              {user?.leftDownLine && user?.rightDownLine ? (
+                <div className="mb-8">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.8 }}
+                    className="bg-gradient-to-br from-gray-500 to-gray-600 p-6 rounded-2xl text-white shadow-lg"
+                  >
                   <div className="flex items-center justify-between mb-4">
                     <div className="p-3 bg-white/20 rounded-xl">
                       <FaNetworkWired className="text-2xl" />
@@ -2267,14 +2325,6 @@ export default function AffiliateDashboard({ userId }) {
                       </div>
                       <button 
                         onClick={() => {
-                          console.log('=== FORCE RECALCULATE ===');
-                          console.log('Left team count:', leftTeamCount);
-                          console.log('Right team count:', rightTeamCount);
-                          console.log('Team pairs:', Math.min(leftTeamCount, rightTeamCount));
-                          console.log('Promotional income:', Math.min(leftTeamCount, rightTeamCount) * 400);
-                          console.log('Mentorship income:', Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1) * 100);
-                          console.log('=== END FORCE RECALCULATE ===');
-                          
                           // Force update income calculations
                           const promotionalIncome = Math.min(leftTeamCount, rightTeamCount) * 400;
                           const mentorshipIncome = Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1) * 100;
@@ -2283,12 +2333,6 @@ export default function AffiliateDashboard({ userId }) {
                           setCalculatedPromotionalIncome(promotionalIncome);
                           setCalculatedMentorshipIncome(mentorshipIncome);
                           setTotalIncome(total);
-                          
-                          console.log('Updated values:', {
-                            promotionalIncome,
-                            mentorshipIncome,
-                            total
-                          });
                         }}
                         className="mt-2 px-3 py-1 bg-gray-400 text-white rounded text-xs hover:bg-gray-500"
                       >
@@ -2298,8 +2342,39 @@ export default function AffiliateDashboard({ userId }) {
                   </div>
                 </motion.div>
               </div>
+              ) : (
+                <div className="mb-8">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.8 }}
+                    className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-2xl text-white shadow-lg"
+                  >
+                    <div className="text-center py-8">
+                      <div className="text-6xl mb-4">🔒</div>
+                      <h4 className="text-lg font-semibold mb-2">Debug Network Information Locked</h4>
+                      <p className="text-amber-200 text-sm mb-4">
+                        You need to meet the mandatory requirements to access debug network information.
+                      </p>
+                      <div className="bg-white/10 rounded-lg p-4 text-left">
+                        <div className="text-sm font-semibold mb-2">Required:</div>
+                        <div className="space-y-1 text-xs text-amber-200">
+                          <div className="flex items-center gap-2">
+                            <span>{user?.leftDownLine ? '✅' : '❌'}</span>
+                            <span>Left Side Direct Referral</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span>{user?.rightDownLine ? '✅' : '❌'}</span>
+                            <span>Right Side Direct Referral</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
 
-                      {/* Vedmurti Plan Payout Info */}
+              {/* Vedmurti Plan Payout Info */}
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -2386,6 +2461,214 @@ export default function AffiliateDashboard({ userId }) {
                   )}
                 </div>
               </motion.div>
+            </motion.div>
+          )}
+
+          {activeTab === 'direct-referrals' && (
+            <motion.div
+              key="direct-referrals"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              {/* Requirements Notice */}
+              {!(user?.leftDownLine && user?.rightDownLine) && (
+                <div className="mb-6">
+                  <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-4 rounded-2xl text-white shadow-lg">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="p-2 bg-white/20 rounded-lg">
+                        <FaExclamationTriangle className="text-xl" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-lg">⚠️ Mandatory Requirements</h4>
+                        <p className="text-amber-100 text-sm">You need both sides covered for full affiliate access</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                      <div className={`rounded-lg p-3 text-center ${
+                        user?.leftDownLine ? 'bg-green-500/20 border border-green-400' : 'bg-red-500/20 border border-red-400'
+                      }`}>
+                        <div className="text-lg font-bold mb-1">
+                          {user?.leftDownLine ? '✅' : '❌'}
+                        </div>
+                        <div className="text-sm font-semibold">Left Side</div>
+                        <div className="text-xs mt-1">
+                          {user?.leftDownLine ? 'Covered' : 'Need Referral'}
+                        </div>
+                      </div>
+                      
+                      <div className={`rounded-lg p-3 text-center ${
+                        user?.rightDownLine ? 'bg-green-500/20 border border-green-400' : 'bg-red-500/20 border border-red-400'
+                      }`}>
+                        <div className="text-lg font-bold mb-1">
+                          {user?.rightDownLine ? '✅' : '❌'}
+                        </div>
+                        <div className="text-sm font-semibold">Right Side</div>
+                        <div className="text-xs mt-1">
+                          {user?.rightDownLine ? 'Covered' : 'Need Referral'}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white/20 rounded-lg p-3">
+                      <div className="text-sm font-semibold mb-2">
+                        🎯 Next Steps
+                      </div>
+                      <div className="text-xs space-y-1">
+                        <p><strong>Priority:</strong> Focus on the side that doesn't have a direct referral yet</p>
+                        <p><strong>Goal:</strong> Get at least 1 direct referral on BOTH left and right sides</p>
+                        <p><strong>Benefit:</strong> Unlock full affiliate features and income calculations</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Direct Referrals List Section */}
+              <div className="mb-8">
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-2xl text-white shadow-lg"
+                >
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 bg-white/20 rounded-xl">
+                        <FaUsers className="text-2xl" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-semibold">Direct Referrals</h3>
+                        <p className="text-blue-100 text-sm">People you directly referred to the network</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-3xl font-bold">{directDownlineCount}</div>
+                      <div className="text-blue-200 text-sm">Total Referrals</div>
+                    </div>
+                  </div>
+                  
+                  {referrals.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {referrals.map((referral, index) => (
+                        <div key={referral.id} className="bg-white/10 rounded-xl p-4 border border-white/20">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-3">
+                              {referral.profilePic ? (
+                                <img 
+                                  src={referral.profilePic} 
+                                  alt={referral.name} 
+                                  className="h-10 w-10 rounded-full object-cover border-2 border-blue-200"
+                                />
+                              ) : (
+                                <div className="h-10 w-10 rounded-full bg-gradient-to-r from-blue-400 to-blue-500 flex items-center justify-center">
+                                  <span className="text-white font-semibold">
+                                    {referral.name?.charAt(0).toUpperCase() || 'U'}
+                                  </span>
+                                </div>
+                              )}
+                              <div>
+                                <h4 className="font-semibold text-white">{referral.name || 'Unknown'}</h4>
+                                <p className="text-xs text-blue-200">ID: {referral.referralCode || 'N/A'}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                referral.affiliateStatus 
+                                  ? 'bg-green-500 text-green-900' 
+                                  : 'bg-yellow-500 text-yellow-900'
+                              }`}>
+                                {referral.affiliateStatus ? 'Active' : 'Pending'}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-blue-200">Email:</span>
+                              <span className="text-white">{referral.email || 'N/A'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-blue-200">Join Date:</span>
+                              <span className="text-white">
+                                {referral.joinDate?.toDate?.()?.toLocaleDateString() || 
+                                 referral.createdAt?.toDate?.()?.toLocaleDateString() || 
+                                 'N/A'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-blue-200">Payment Status:</span>
+                              <span className={`font-semibold ${
+                                referral.paymentRequestStatus === 'approved' 
+                                  ? 'text-green-300' 
+                                  : referral.paymentRequestStatus === 'pending'
+                                  ? 'text-yellow-300'
+                                  : 'text-red-300'
+                              }`}>
+                                {referral.paymentRequestStatus || 'Pending'}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Team Structure Display */}
+                          <div className="mt-3 pt-3 border-t border-white/20">
+                            <div className="text-center mb-2">
+                              <span className="text-xs text-blue-200">Team Structure</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="bg-white/10 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-blue-300">{referralTeamCounts[referral.referralCode]?.left || 0}</div>
+                                <div className="text-xs text-blue-200">Left Team</div>
+                              </div>
+                              <div className="bg-white/10 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-green-300">{referralTeamCounts[referral.referralCode]?.right || 0}</div>
+                                <div className="text-xs text-blue-200">Right Team</div>
+                              </div>
+                            </div>
+                            <div className="mt-2 text-center">
+                              <div className="text-xs text-blue-200 mb-1">Pairs Formed:</div>
+                              <div className="text-sm font-semibold text-yellow-300">
+                                {Math.min(referralTeamCounts[referral.referralCode]?.left || 0, referralTeamCounts[referral.referralCode]?.right || 0)} pairs
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {referral.affiliateStatus && (
+                            <div className="mt-3 pt-3 border-t border-white/20">
+                              <div className="text-center">
+                                <div className="text-xs text-blue-200 mb-1">Contributes to your</div>
+                                <div className="text-sm font-semibold text-green-300">
+                                  Mentorship Income: ₹{Math.min(referralTeamCounts[referral.referralCode]?.left || 0, referralTeamCounts[referral.referralCode]?.right || 0) * 100}
+                                </div>
+                                <div className="text-xs text-blue-200 mt-1">
+                                  ({Math.min(referralTeamCounts[referral.referralCode]?.left || 0, referralTeamCounts[referral.referralCode]?.right || 0)} pairs × ₹100)
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <div className="text-6xl mb-4">👥</div>
+                      <h4 className="text-lg font-semibold mb-2">No Direct Referrals Yet</h4>
+                      <p className="text-blue-200 text-sm mb-4">
+                        Start referring people to build your network and earn mentorship income!
+                      </p>
+                      <button
+                        onClick={copyReferralLink}
+                        className="px-4 py-2 bg-white text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-semibold"
+                      >
+                        <FaCopy className="inline-block mr-2" />
+                        Copy Referral Link
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
