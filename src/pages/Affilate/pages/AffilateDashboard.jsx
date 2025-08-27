@@ -1415,15 +1415,40 @@ export default function AffiliateDashboard({ userId }) {
                     <div className="p-2 bg-white/20 rounded-lg">
                       <BsCurrencyRupee className="text-xl" />
                     </div>
-                                      <div className="text-right">
-                    <p className="text-green-100 text-sm">Today's Referrals</p>
-                      <p className="text-xl font-bold">{todayReferrals}</p>
-                    <p className="text-xs text-green-200">Direct referrals today</p>
+                    <div className="text-right">
+                      <p className="text-green-100 text-sm">Today's Income</p>
+                      <p className="text-xl font-bold">₹{dailyLimits.dailyIncome.toFixed(2)}</p>
+                      <p className="text-xs text-green-200">Earned today</p>
+                    </div>
                   </div>
+                  
+                  {/* Daily Progress Display */}
+                  <div className="bg-white/20 rounded-lg p-2 mb-2 text-center">
+                    <div className="text-lg font-bold text-green-100">
+                      {dailyLimits.dailyPairs} Pairs Today
+                    </div>
+                    <div className="text-xs text-green-200">
+                      {dailyLimits.dailyPairs}/5 pairs used
+                    </div>
                   </div>
+                  
                   <div className="flex items-center gap-2 text-green-100 mt-2">
                     <BsLightning className="text-sm" />
-                    <span className="text-xs">Direct Referrals</span>
+                    <span className="text-xs">Daily Earnings</span>
+                  </div>
+                  <div className="mt-2 bg-white/20 rounded-full h-2">
+                    <div 
+                      className="bg-white rounded-full h-2 transition-all duration-300"
+                      style={{ width: `${Math.min((dailyLimits.dailyIncome / 2000) * 100, 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="text-xs text-green-200 mt-1 text-center">
+                    {dailyLimits.dailyPairs} pairs × ₹400 = ₹{dailyLimits.dailyIncome.toFixed(2)}
+                    {dailyLimits.dailyIncome >= 2000 && (
+                      <span className="block text-yellow-300 font-semibold">
+                        (Daily cap reached)
+                      </span>
+                    )}
                   </div>
                 </motion.div>
 
