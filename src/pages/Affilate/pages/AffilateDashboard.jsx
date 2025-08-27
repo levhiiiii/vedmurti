@@ -649,33 +649,25 @@ export default function AffiliateDashboard({ userId }) {
       }
 
       try {
-        // Calculate mentorship pairs based on team-based total pairs
-        const teamBasedTotalPairs = Math.min(leftTeamCount, rightTeamCount);
+        // Calculate mentorship income from direct referrals' networks
+        const mentorshipIncome = Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100;
         
-        // Mentorship income: If more than 1 pair, calculate for (totalPairs - 1) pairs
-        let mentorshipPairs = 0;
-        if (teamBasedTotalPairs > 1) {
-          mentorshipPairs = teamBasedTotalPairs - 1; // Exclude 1 pair
-        }
+        // Set downline pairs for display purposes
+        const totalReferralPairs = Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0);
         
-        const mentorshipIncome = mentorshipPairs * 100; // ₹100 per pair
-        
-
-        
-        setDownlinePairs(mentorshipPairs);
+        setDownlinePairs(totalReferralPairs);
         setCalculatedMentorshipIncome(mentorshipIncome);
       } catch (error) {
-        setCalculatedMentorshipIncome(0);
         setCalculatedMentorshipIncome(0);
         setDownlinePairs(0);
       }
     };
 
-    // Only calculate when team counts are available
-    if (leftTeamCount !== undefined && rightTeamCount !== undefined) {
+    // Only calculate when team counts and referral team counts are available
+    if (leftTeamCount !== undefined && rightTeamCount !== undefined && Object.keys(referralTeamCounts).length > 0) {
       calculateMentorshipIncomeFromTeams();
     }
-  }, [user, leftTeamCount, rightTeamCount]);
+  }, [user, leftTeamCount, rightTeamCount, referralTeamCounts]);
 
   // Calculate rewards using team-based pairs
   useEffect(() => {
@@ -710,11 +702,11 @@ export default function AffiliateDashboard({ userId }) {
 
   // Calculate total income from all sources using team-based pairs
   useEffect(() => {
-    // Calculate promotional income from team pairs
-    const promotionalIncome = Math.min(leftTeamCount, rightTeamCount) * 400;
+    // Calculate promotional income from team pairs (with daily cap)
+    const promotionalIncome = Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000);
     
-    // Calculate mentorship income (pairs - 1) * 100
-    const mentorshipIncome = Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1) * 100;
+    // Calculate mentorship income from direct referrals' networks
+    const mentorshipIncome = Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100;
     
     // Calculate rewards
     const rewardsIncome = calculatedRewards.total;
@@ -727,7 +719,7 @@ export default function AffiliateDashboard({ userId }) {
     setTotalIncome(total);
     
 
-  }, [leftTeamCount, rightTeamCount, calculatedRewards.total]);
+  }, [leftTeamCount, rightTeamCount, calculatedRewards.total, referralTeamCounts]);
 
   // Update daily limits when user or MLM data changes
   useEffect(() => {
@@ -1337,48 +1329,7 @@ export default function AffiliateDashboard({ userId }) {
                 </div>
               </div>
 
-              {/* Daily Cap Notice */}
-              <div className="mb-6">
-                <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-4 rounded-2xl text-white shadow-lg">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 bg-white/20 rounded-lg">
-                      <FaExclamationTriangle className="text-xl" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-lg">Daily Cap System</h4>
-                      <p className="text-amber-100 text-sm">Fair distribution for all users</p>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-white/20 rounded-lg p-3 text-center">
-                      <div className="text-lg font-bold text-amber-100">₹2000</div>
-                      <div className="text-xs text-amber-200">Daily Promotional Income Cap</div>
-                      <div className="text-xs text-amber-300 mt-1">
-                        Today: ₹{dailyLimits.dailyIncome} / ₹2000
-                      </div>
-                    </div>
-                    <div className="bg-white/20 rounded-lg p-3 text-center">
-                      <div className="text-lg font-bold text-amber-100">5 Pairs</div>
-                      <div className="text-xs text-amber-200">Maximum Pairs Per Day</div>
-                      <div className="text-xs text-amber-300 mt-1">
-                        {dailyLimits.dailyPairs} / 5 pairs used
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-3 p-3 bg-white/20 rounded-lg">
-                    <div className="text-sm text-amber-100 font-semibold mb-1">
-                      💡 How It Works
-                    </div>
-                    <div className="text-xs text-amber-200">
-                      You can earn up to ₹2000 per day from promotional income (5 pairs maximum). 
-                      This ensures fair distribution and prevents excessive daily earnings. 
-                      <span className="font-semibold">Mentorship income and rewards are NOT affected by daily caps.</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+
 
               {/* Mandatory Requirements Check */}
               <div className="mb-6">
@@ -1605,7 +1556,7 @@ export default function AffiliateDashboard({ userId }) {
                       Income Formula
                     </div>
                     <div className="text-xs text-orange-200">
-                      Promo: ₹{(Math.min(leftTeamCount, rightTeamCount) * 400).toFixed(0)} + Mentorship: ₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}
+                      Promo: ₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(0)} + Mentorship: ₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}
                     </div>
                   </div>
                   
@@ -1622,6 +1573,9 @@ export default function AffiliateDashboard({ userId }) {
                   <div className="text-xs text-orange-200 mt-1 text-center">
                     Promotional + Mentorship = Total Income
                   </div>
+                  <div className="text-xs text-orange-100 mt-1 text-center">
+                    (Promotional income capped at ₹2000/day)
+              </div>
                 </motion.div>
 
                 {/* Rewards Card */}
@@ -1664,15 +1618,15 @@ export default function AffiliateDashboard({ userId }) {
               {/* Team Breakdown Section */}
               {user?.leftDownLine && user?.rightDownLine ? (
                 <div className="mb-8">
-                  <motion.div 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 }}
                     className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg"
-                  >
+                >
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
-                      <div className="p-3 bg-white/20 rounded-xl">
+                    <div className="p-3 bg-white/20 rounded-xl">
                           <RiTeamFill className="text-2xl" />
                         </div>
                         <div>
@@ -1712,12 +1666,12 @@ export default function AffiliateDashboard({ userId }) {
                             </div>
                           )}
                         </div>
-                      </div>
-                      <div className="text-right">
+                    </div>
+                    <div className="text-right">
                         <div className="text-3xl font-bold">{leftTeamCount + rightTeamCount}</div>
                         <div className="text-indigo-200 text-sm">Total Team</div>
-                      </div>
                     </div>
+                  </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Left Team */}
@@ -1982,485 +1936,9 @@ export default function AffiliateDashboard({ userId }) {
                 </div>
               )}
 
-              {/* Pairs Matching Analysis Section */}
-              {user?.leftDownLine && user?.rightDownLine ? (
-                <div className="mb-8">
-                  <motion.div 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.6 }}
-                    className="bg-gradient-to-r from-emerald-500 to-teal-600 p-6 rounded-2xl text-white shadow-lg"
-                  >
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-3">
-                    <div className="p-3 bg-white/20 rounded-xl">
-                        <FaNetworkWired className="text-2xl" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-semibold">Pairs Matching Analysis</h3>
-                        <p className="text-emerald-100 text-sm">Binary MLM pair formation and income potential</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-3xl font-bold">{Math.min(leftTeamCount, rightTeamCount)}</div>
-                      <div className="text-emerald-200 text-sm">Formed Pairs</div>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                    {/* Left Team Stats */}
-                    <div className="bg-white/10 rounded-xl p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-lg">Left Team</h4>
-                        <div className="text-2xl font-bold">{leftTeamCount}</div>
-                  </div>
-                      <div className="text-emerald-100 text-sm">
-                        <div className="flex justify-between mb-1">
-                          <span>Available for pairs:</span>
-                          <span className="font-semibold">{leftTeamCount}</span>
-                  </div>
-                        <div className="flex justify-between">
-                          <span>Used in pairs:</span>
-                          <span className="font-semibold">{Math.min(leftTeamCount, rightTeamCount)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Unused:</span>
-                          <span className="font-semibold">{Math.max(0, leftTeamCount - Math.min(leftTeamCount, rightTeamCount))}</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Right Team Stats */}
-                    <div className="bg-white/10 rounded-xl p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-lg">Right Team</h4>
-                        <div className="text-2xl font-bold">{rightTeamCount}</div>
-                      </div>
-                      <div className="text-emerald-100 text-sm">
-                        <div className="flex justify-between mb-1">
-                          <span>Available for pairs:</span>
-                          <span className="font-semibold">{rightTeamCount}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Used in pairs:</span>
-                          <span className="font-semibold">{Math.min(leftTeamCount, rightTeamCount)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Unused:</span>
-                          <span className="font-semibold">{Math.max(0, rightTeamCount - Math.min(leftTeamCount, rightTeamCount))}</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                                      {/* Pairs Summary */}
-                  <div className="bg-white/10 rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-lg">Pairs Summary</h4>
-                      <div className="text-2xl font-bold">{Math.min(leftTeamCount, rightTeamCount)}</div>
-                    </div>
-                    <div className="text-emerald-100 text-sm">
-                      <div className="flex justify-between mb-1">
-                        <span>Total pairs:</span>
-                        <span className="font-semibold">{Math.min(leftTeamCount, rightTeamCount)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Income per pair:</span>
-                        <span className="font-semibold">₹400</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Promotional income:</span>
-                        <span className="font-semibold">₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(0)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Mentorship income:</span>
-                        <span className="font-semibold">₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}</span>
-                      </div>
-                      <div className="border-t border-emerald-300/30 pt-1 mt-1">
-                        <div className="flex justify-between font-semibold">
-                          <span>Total income:</span>
-                          <span className="text-lg">₹{(Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000) + (Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100)).toFixed(0)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  </div>
-                  
-                  {/* Pair Formation Visualization */}
-                  <div className="bg-white/10 rounded-xl p-4 mb-4">
-                    <h4 className="font-semibold text-lg mb-3 text-center">Pair Formation Process</h4>
-                    <div className="flex items-center justify-center gap-4 mb-4">
-                      {/* Left Team */}
-                      <div className="text-center">
-                        <div className="bg-blue-400 rounded-lg p-3 mb-2">
-                          <div className="text-lg font-bold text-blue-900">{leftTeamCount}</div>
-                          <div className="text-xs text-blue-800">Left Team</div>
-                        </div>
-                        <div className="text-xs text-emerald-200">
-                          {leftTeamCount > rightTeamCount ? 'Excess: ' + (leftTeamCount - rightTeamCount) : 'All used'}
-                        </div>
-                      </div>
-                      
-                      {/* Arrow */}
-                      <div className="text-2xl text-emerald-300">→</div>
-                      
-                      {/* Pairs */}
-                      <div className="text-center">
-                        <div className="bg-emerald-400 rounded-lg p-3 mb-2">
-                          <div className="text-lg font-bold text-emerald-900">{Math.min(leftTeamCount, rightTeamCount)}</div>
-                          <div className="text-xs text-emerald-800">Pairs Formed</div>
-                        </div>
-                        <div className="text-xs text-emerald-200">
-                          ₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000)}
-                          {Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000) < (Math.min(leftTeamCount, rightTeamCount) * 400) && (
-                            <span className="block text-yellow-300 font-semibold text-xs">
-                              (Capped)
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Arrow */}
-                      <div className="text-2xl text-emerald-300">→</div>
-                      
-                      {/* Right Team */}
-                      <div className="text-center">
-                        <div className="bg-green-400 rounded-lg p-3 mb-2">
-                          <div className="text-lg font-bold text-green-900">{rightTeamCount}</div>
-                          <div className="text-xs text-green-800">Right Team</div>
-                        </div>
-                        <div className="text-xs text-emerald-200">
-                          {rightTeamCount > leftTeamCount ? 'Excess: ' + (rightTeamCount - leftTeamCount) : 'All used'}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Pair Formation Logic */}
-                    <div className="text-center text-sm text-emerald-200">
-                      <p>
-                        <strong>Pair Formation Rule:</strong> 1 member from Left Team + 1 member from Right Team = 1 Pair
-                      </p>
-                      <p className="mt-1">
-                        <strong>Maximum Pairs:</strong> {Math.min(leftTeamCount, rightTeamCount)} (limited by the smaller team)
-                      </p>
-                    </div>
-                  </div>
-                  
-                  {/* Daily Cap Notice */}
-                  <div className="bg-amber-500/20 rounded-lg p-3 mb-4 border border-amber-400">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-amber-300 text-lg">⚠️</span>
-                      <span className="font-semibold text-amber-100">Daily Cap System</span>
-                    </div>
-                    <div className="text-sm text-amber-200">
-                      <strong>Promotional Income:</strong> Limited to ₹2000 per day (5 pairs maximum). 
-                      <strong>Mentorship Income:</strong> No daily cap - unlimited earnings from direct referrals' networks.
-                    </div>
-                  </div>
 
-                  {/* Comprehensive Income Breakdown */}
-                  <div className="bg-white/10 rounded-xl p-4 mb-4">
-                    <h4 className="font-semibold text-lg mb-3">Income Breakdown from Matched Pairs</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Promotional Income */}
-                      <div className="bg-blue-500/20 rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-semibold text-blue-200">Promotional Income</span>
-                          <span className="text-lg font-bold text-blue-100">₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(0)}</span>
-                        </div>
-                        <div className="text-xs text-blue-200">
-                          {Math.min(leftTeamCount, rightTeamCount)} pairs × ₹400 = ₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(0)}
-                          {Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000) < (Math.min(leftTeamCount, rightTeamCount) * 400) && (
-                            <span className="block text-yellow-300 font-semibold">
-                              (Daily cap applied)
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Mentorship Income */}
-                      <div className="bg-teal-500/20 rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-semibold text-teal-200">Mentorship Income</span>
-                          <span className="text-lg font-bold text-teal-100">₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}</span>
-                        </div>
-                        <div className="text-xs text-teal-200">
-                          {Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0)} matched pairs × ₹100 = ₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Total Income */}
-                    <div className="mt-4 p-3 bg-emerald-500/20 rounded-lg border border-emerald-400">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-emerald-100 text-lg">Total Income from Pairs</span>
-                        <span className="text-2xl font-bold text-emerald-100">₹{(Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000) + (Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100)).toFixed(0)}</span>
-                      </div>
-                      <div className="text-sm text-emerald-200 mt-1">
-                        Promotional: ₹{Math.min((Math.min(leftTeamCount, rightTeamCount) * 400), 2000).toFixed(0)} + Mentorship: ₹{(Object.values(referralTeamCounts).reduce((total, counts) => total + Math.min(counts.left || 0, counts.right || 0), 0) * 100).toFixed(0)}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Optimization Recommendations */}
-                  <div className="bg-white/10 rounded-xl p-4">
-                    <h4 className="font-semibold text-lg mb-3">Optimization Recommendations</h4>
-                    <div className="space-y-3">
-                      {leftTeamCount === rightTeamCount && leftTeamCount > 0 ? (
-                        <div className="flex items-center gap-2 text-green-200">
-                          <span className="text-lg">🎯</span>
-                          <span>Perfect balance achieved! Focus on growing both teams equally to increase total pairs.</span>
-                        </div>
-                      ) : leftTeamCount > 0 && rightTeamCount > 0 ? (
-                        <>
-                          {leftTeamCount < rightTeamCount ? (
-                            <div className="flex items-center gap-2 text-yellow-200">
-                              <span className="text-lg">⬅️</span>
-                              <span><strong>Priority:</strong> Build your LEFT team. Adding {rightTeamCount - leftTeamCount} more members will create {rightTeamCount - leftTeamCount} additional pairs worth ₹{Math.min((rightTeamCount - leftTeamCount) * 400, 2000)} (daily cap: ₹2000).</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 text-yellow-200">
-                              <span className="text-lg">➡️</span>
-                              <span><strong>Priority:</strong> Build your RIGHT team. Adding {leftTeamCount - rightTeamCount} more members will create {leftTeamCount - rightTeamCount} additional pairs worth ₹{Math.min((leftTeamCount - rightTeamCount) * 400, 2000)} (daily cap: ₹2000).</span>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2 text-blue-200">
-                            <span className="text-lg">💡</span>
-                            <span>Current pairs: {Math.min(leftTeamCount, rightTeamCount)} | Potential pairs: {Math.max(leftTeamCount, rightTeamCount)} | Income difference: ₹{Math.abs(leftTeamCount - rightTeamCount) * 400}</span>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex items-center gap-2 text-blue-200">
-                          <span className="text-lg">📈</span>
-                          <span>Start building both teams to create your first pairs and start earning income.</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </motion.div>
-              </div>
-              ) : (
-                <div className="mb-8">
-                  <motion.div 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.6 }}
-                    className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-2xl text-white shadow-lg"
-                  >
-                    <div className="text-center py-8">
-                      <div className="text-6xl mb-4">🔒</div>
-                      <h4 className="text-lg font-semibold mb-2">Pairs Matching Analysis Locked</h4>
-                      <p className="text-amber-200 text-sm mb-4">
-                        You need to meet the mandatory requirements to access pairs matching analysis.
-                      </p>
-                      <div className="bg-white/10 rounded-lg p-4 text-left">
-                        <div className="text-sm font-semibold mb-2">Required:</div>
-                        <div className="space-y-1 text-xs text-amber-200">
-                          <div className="flex items-center gap-2">
-                            <span>{user?.leftDownLine ? '✅' : '❌'}</span>
-                            <span>Left Side Direct Referral</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span>{user?.rightDownLine ? '✅' : '❌'}</span>
-                            <span>Right Side Direct Referral</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
 
-              {/* Debug Network Information */}
-              {user?.leftDownLine && user?.rightDownLine ? (
-                <div className="mb-8">
-                  <motion.div 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.8 }}
-                    className="bg-gradient-to-br from-gray-500 to-gray-600 p-6 rounded-2xl text-white shadow-lg"
-                  >
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="p-3 bg-white/20 rounded-xl">
-                      <FaNetworkWired className="text-2xl" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold">Network Debug Info</h3>
-                      <p className="text-gray-200 text-sm">Current network structure and pair calculation</p>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                    <div className="bg-white/10 rounded-lg p-4">
-                      <h4 className="font-semibold mb-2">User Info</h4>
-                      <div className="space-y-1">
-                        <div>Referral Code: {user?.referralCode || 'N/A'}</div>
-                        <div>Left Downline: {user?.leftDownLine || 'None'}</div>
-                        <div>Right Downline: {user?.rightDownLine || 'None'}</div>
-                        <div>Affiliate Status: {user?.affiliateStatus ? 'Active' : 'Inactive'}</div>
-                        <div>Payment Status: {user?.paymentStatus || 'N/A'}</div>
-                        <div>Has Both Downlines: {user?.leftDownLine && user?.rightDownLine ? 'Yes' : 'No'}</div>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-white/10 rounded-lg p-4">
-                      <h4 className="font-semibold mb-2">Team Counts</h4>
-                      <div className="space-y-1">
-                        <div>Left Team Count: {leftTeamCount}</div>
-                        <div>Right Team Count: {rightTeamCount}</div>
-                        <div>Total Team: {leftTeamCount + rightTeamCount}</div>
-                        <div>Matched Pairs: {Math.min(leftTeamCount, rightTeamCount)}</div>
-                        <div>Mentorship Pairs: {Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1)}</div>
-                        <div>Team Status: {leftTeamCount > 0 && rightTeamCount > 0 ? 'Active' : 'Building'}</div>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-white/10 rounded-lg p-4">
-                      <h4 className="font-semibold mb-2">Income Calculation</h4>
-                      <div className="space-y-1">
-                        <div>Promotional Income: ₹{calculatedPromotionalIncome.toFixed(2)}</div>
-                        <div>Mentorship Income: ₹{calculatedMentorshipIncome.toFixed(2)}</div>
-                        <div>Rewards Income: ₹{calculatedRewards.total.toFixed(2)}</div>
-                        <div>Total Income: ₹{totalIncome.toFixed(2)}</div>
-                        <div>Calculation Status: {totalIncome > 0 ? 'Active' : 'No income'}</div>
-                      </div>
-                      <button 
-                        onClick={() => {
-                          // Force update income calculations
-                          const promotionalIncome = Math.min(leftTeamCount, rightTeamCount) * 400;
-                          const mentorshipIncome = Math.max(0, Math.min(leftTeamCount, rightTeamCount) - 1) * 100;
-                          const total = promotionalIncome + mentorshipIncome + calculatedRewards.total;
-                          
-                          setCalculatedPromotionalIncome(promotionalIncome);
-                          setCalculatedMentorshipIncome(mentorshipIncome);
-                          setTotalIncome(total);
-                        }}
-                        className="mt-2 px-3 py-1 bg-gray-400 text-white rounded text-xs hover:bg-gray-500"
-                      >
-                        Debug Console
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              </div>
-              ) : (
-                <div className="mb-8">
-                  <motion.div 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.8 }}
-                    className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-2xl text-white shadow-lg"
-                  >
-                    <div className="text-center py-8">
-                      <div className="text-6xl mb-4">🔒</div>
-                      <h4 className="text-lg font-semibold mb-2">Debug Network Information Locked</h4>
-                      <p className="text-amber-200 text-sm mb-4">
-                        You need to meet the mandatory requirements to access debug network information.
-                      </p>
-                      <div className="bg-white/10 rounded-lg p-4 text-left">
-                        <div className="text-sm font-semibold mb-2">Required:</div>
-                        <div className="space-y-1 text-xs text-amber-200">
-                          <div className="flex items-center gap-2">
-                            <span>{user?.leftDownLine ? '✅' : '❌'}</span>
-                            <span>Left Side Direct Referral</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span>{user?.rightDownLine ? '✅' : '❌'}</span>
-                            <span>Right Side Direct Referral</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
 
-              {/* Vedmurti Plan Payout Info */}
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.8 }}
-          className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg mb-8 overflow-x-auto"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-xl font-semibold mb-2">Next Payout - Vedmurti Plan</h3>
-              <p className="text-indigo-100">Automatic payouts on 2nd, 12th & 22nd of every month</p>
-            </div>
-            <div className="text-right">
-              <div className="text-3xl font-bold">{payoutInfo.daysUntil}</div>
-              <div className="text-indigo-200 text-sm">Days Left</div>
-            </div>
-          </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div className="bg-white/10 rounded-lg p-4">
-                    <h4 className="font-semibold mb-2">Balance Information</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-indigo-100">Available Balance:</span>
-                        <span className="font-semibold">₹{(user.affiliateBalance || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-indigo-100">After 5% Deduction:</span>
-                        <span className="font-semibold">₹{((user.affiliateBalance || 0) * 0.95).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-indigo-100">KYC Status:</span>
-                        <span className={`font-semibold ${incomeData?.kycCompleted ? 'text-green-300' : 'text-red-300'}`}>
-                          {incomeData?.kycCompleted ? 'Completed' : 'Pending'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white/10 rounded-lg p-4">
-                    <h4 className="font-semibold mb-2">Daily Limits (Vedmurti Plan)</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-indigo-100">Daily Pairs:</span>
-                        <span className="font-semibold">{incomeData?.dailyPairs || 0}/400</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-indigo-100">Daily Income:</span>
-                        <span className="font-semibold">₹{(incomeData?.dailyIncome || 0).toFixed(0)}/₹2000</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-indigo-100">Remaining Capacity:</span>
-                        <span className="font-semibold">{incomeData?.availableDailyPairs || 400} pairs</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-indigo-400 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
-                  <div className="flex justify-between items-center">
-                    <span className="text-indigo-100">Next Payout Date:</span>
-                    <span className="font-semibold">{payoutInfo.nextDate}</span>
-                  </div>
-                  <div className="flex justify-between items-center mt-2">
-                    <span className="text-indigo-100">Payout Schedule:</span>
-                    <span className="font-semibold">2nd, 12th, 22nd (Monthly)</span>
-                  </div>
-                  <div className="mt-3 p-3 bg-green-500/20 rounded-lg border border-green-400">
-                    <div className="flex items-center gap-2">
-                      <FaCheck className="text-green-300" />
-                      <span className="text-green-100 text-sm">
-                        Payouts are automatically generated on scheduled dates. Your income will be reset after each payout.
-                      </span>
-                    </div>
-                  </div>
-                  {!incomeData?.kycCompleted && (
-                    <div className="mt-3 p-3 bg-red-500/20 rounded-lg border border-red-400">
-                      <div className="flex items-center gap-2">
-                        <FaExclamationTriangle className="text-red-300" />
-                        <span className="text-red-100 text-sm">
-                          Complete KYC to receive payouts. Your balance will be held until KYC is completed.
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
             </motion.div>
           )}
 
