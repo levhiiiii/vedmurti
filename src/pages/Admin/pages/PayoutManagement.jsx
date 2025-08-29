@@ -36,6 +36,9 @@ const PayoutManagement = () => {
     completedPayouts: 0,
     averagePayout: 0
   });
+  const [excludedUsers, setExcludedUsers] = useState([]);
+  const [payoutSummary, setPayoutSummary] = useState(null);
+  const [showExcludedUsers, setShowExcludedUsers] = useState(false);
 
   // Fetch payouts on component mount
   useEffect(() => {
@@ -76,6 +79,13 @@ const PayoutManagement = () => {
       // Calculate statistics
       const stats = await PayoutService.getPayoutStatistics();
       setStatistics(stats);
+      
+      // Get excluded users and payout summary
+      const excludedUsersData = await PayoutService.getExcludedUsers();
+      setExcludedUsers(excludedUsersData);
+      
+      const summaryData = await PayoutService.getPayoutGenerationSummary();
+      setPayoutSummary(summaryData);
     } catch (err) {
       console.error('Error fetching payouts:', err);
       setError('Failed to load payouts');
@@ -137,17 +147,22 @@ const PayoutManagement = () => {
       setSuccessMessage('');
       setShowConfirmDialog(false);
       
-      const generatedPayouts = await PayoutService.generateAutomaticPayouts();
+      const result = await PayoutService.generateAutomaticPayouts();
       
-      if (generatedPayouts.length > 0) {
+      if (result.payouts && result.payouts.length > 0) {
         // Refresh payouts list
         await fetchPayouts();
-        setSuccessMessage(`✅ Successfully deleted existing payouts and generated ${generatedPayouts.length} new payouts! Total amount: ${formatCurrency(generatedPayouts.reduce((sum, payout) => sum + payout.payoutAmount, 0))}`);
+        setSuccessMessage(`✅ Successfully deleted existing payouts and generated ${result.payouts.length} new payouts! Total amount: ${formatCurrency(result.payouts.reduce((sum, payout) => sum + payout.payoutAmount, 0))}`);
         
-        // Clear success message after 5 seconds
+        // Show excluded users info if any
+        if (result.excludedUsers && result.excludedUsers.length > 0) {
+          setSuccessMessage(prev => prev + ` | ${result.excludedUsers.length} users excluded (see details below)`);
+        }
+        
+        // Clear success message after 8 seconds
         setTimeout(() => {
           setSuccessMessage('');
-        }, 5000);
+        }, 8000);
       } else {
         setError('No eligible payouts to generate. Make sure users have KYC completed and positive income.');
       }
@@ -317,6 +332,113 @@ const PayoutManagement = () => {
           </motion.div>
         </div>
 
+        {/* Payout Generation Summary */}
+        {payoutSummary && (
+          <div className="mb-6 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-lg p-6">
+            <div className="flex items-start gap-4">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <FaUsers className="text-purple-600 text-xl" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-purple-900 mb-2">Payout Generation Summary</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-purple-600">{payoutSummary.totalEligibleUsers}</p>
+                    <p className="text-sm text-purple-700">Total Eligible Users</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-green-600">{payoutSummary.payoutsGenerated}</p>
+                    <p className="text-sm text-green-700">Payouts Generated</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-orange-600">{payoutSummary.usersExcluded}</p>
+                    <p className="text-sm text-orange-700">Users Excluded</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-gray-600">{payoutSummary.currentCycle}</p>
+                    <p className="text-xs text-gray-500">Current Cycle</p>
+                  </div>
+                </div>
+                
+                {/* Excluded Reasons Breakdown */}
+                {Object.keys(payoutSummary.excludedReasons).length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="text-sm font-semibold text-purple-800 mb-2">Exclusion Reasons:</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(payoutSummary.excludedReasons).map(([reason, count]) => (
+                        <span key={reason} className="px-3 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">
+                          {reason.replace(/_/g, ' ')}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <button
+                  onClick={() => setShowExcludedUsers(!showExcludedUsers)}
+                  className="text-purple-600 hover:text-purple-800 text-sm font-medium flex items-center gap-2"
+                >
+                  {showExcludedUsers ? 'Hide' : 'View'} Excluded Users Details
+                  <FaEye className="text-sm" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Excluded Users Section */}
+        {showExcludedUsers && excludedUsers.length > 0 && (
+          <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Excluded Users - Payout Not Generated</h3>
+              <p className="text-sm text-gray-600">Users who were excluded from payout generation and their reasons</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {excludedUsers.map((user, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{user.userName}</div>
+                          <div className="text-sm text-gray-500">{user.userEmail}</div>
+                          <div className="text-xs text-gray-400">ID: {user.userReferralCode}</div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          user.category === 'kyc_incomplete' ? 'bg-red-100 text-red-800' :
+                          user.category === 'payment_request_not_approved' ? 'bg-yellow-100 text-yellow-800' :
+                          user.category === 'bank_account_missing' ? 'bg-orange-100 text-orange-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {user.reason}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900">{user.details}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                          {user.category.replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <button
@@ -424,6 +546,9 @@ const PayoutManagement = () => {
                     Bank Details
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Network
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Amount
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -470,6 +595,20 @@ const PayoutManagement = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
+                          {payout.payoutSummary?.networkInfo?.totalNetworkSize || 0} members
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Direct: {payout.payoutSummary?.networkInfo?.directReferrals || 0}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          L: {payout.payoutSummary?.networkInfo?.leftLegStructure?.count || 0} | R: {payout.payoutSummary?.networkInfo?.rightLegStructure?.count || 0}
+                        </div>
+                      </div>
+                    </td>
+                    
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">
                           {formatCurrency(payout.payoutAmount)}
                         </div>
                         <div className="text-xs text-gray-500">
@@ -478,6 +617,11 @@ const PayoutManagement = () => {
                         <div className="text-xs text-red-500">
                           Deduction: {formatCurrency(payout.deduction)}
                         </div>
+                        {(payout.payoutSummary?.promotionalDetails?.capApplied || payout.payoutSummary?.mentorshipDetails?.capApplied) && (
+                          <div className="text-xs text-orange-600 font-medium mt-1">
+                            ⚠️ Daily caps applied
+                          </div>
+                        )}
                       </div>
                     </td>
                     
@@ -655,6 +799,9 @@ const PayoutManagement = () => {
                           <p className="text-xs text-gray-500">
                             {selectedPayout.incomeBreakdown?.referralPairs || 0} pairs × ₹400
                           </p>
+                          {selectedPayout.payoutSummary?.promotionalDetails?.capApplied && (
+                            <p className="text-xs text-orange-600 font-medium">⚠️ Daily cap applied (₹2000 max)</p>
+                          )}
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700">Mentorship Income</label>
@@ -662,6 +809,9 @@ const PayoutManagement = () => {
                           <p className="text-xs text-gray-500">
                             {selectedPayout.incomeBreakdown?.directReferrals || 0} referrals' pairs × ₹100
                           </p>
+                          {selectedPayout.payoutSummary?.mentorshipDetails?.capApplied && (
+                            <p className="text-xs text-orange-600 font-medium">⚠️ Daily cap applied (₹500 max)</p>
+                          )}
                         </div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -684,6 +834,151 @@ const PayoutManagement = () => {
                       </div>
                     </div>
                   </div>
+
+                  {/* Detailed Payout Summary */}
+                  {selectedPayout.payoutSummary && (
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-3">Payout Summary & Reasoning</h3>
+                      <div className="bg-blue-50 rounded-lg p-4 space-y-4">
+                        {/* Overview */}
+                        <div>
+                          <h4 className="text-sm font-semibold text-blue-900 mb-2">Overview</h4>
+                          <p className="text-sm text-blue-800">{selectedPayout.payoutSummary.overview}</p>
+                        </div>
+
+                        {/* Promotional Details */}
+                        <div>
+                          <h4 className="text-sm font-semibold text-blue-900 mb-2">Promotional Income Details</h4>
+                          <div className="bg-white rounded p-3">
+                            <p className="text-sm text-gray-700 mb-1">
+                              <span className="font-medium">Pairs:</span> {selectedPayout.payoutSummary.promotionalDetails.pairs} | 
+                              <span className="font-medium"> Rate:</span> {selectedPayout.payoutSummary.promotionalDetails.rate}
+                            </p>
+                            <p className="text-sm text-gray-700 mb-1">
+                              <span className="font-medium">Potential:</span> ₹{selectedPayout.payoutSummary.promotionalDetails.potential.toFixed(2)} | 
+                              <span className="font-medium"> Actual:</span> ₹{selectedPayout.payoutSummary.promotionalDetails.actual.toFixed(2)}
+                            </p>
+                            <p className="text-xs text-gray-600">{selectedPayout.payoutSummary.promotionalDetails.explanation}</p>
+                          </div>
+                        </div>
+
+                        {/* Mentorship Details */}
+                        <div>
+                          <h4 className="text-sm font-semibold text-blue-900 mb-2">Mentorship Income Details</h4>
+                          <div className="bg-white rounded p-3">
+                            <p className="text-sm text-gray-700 mb-1">
+                              <span className="font-medium">Direct Referrals:</span> {selectedPayout.payoutSummary.mentorshipDetails.directReferrals} | 
+                              <span className="font-medium"> Referral Pairs:</span> {selectedPayout.payoutSummary.mentorshipDetails.referralPairs}
+                            </p>
+                            <p className="text-sm text-gray-700 mb-1">
+                              <span className="font-medium">Rate:</span> {selectedPayout.payoutSummary.mentorshipDetails.rate} | 
+                              <span className="font-medium"> Actual:</span> ₹{selectedPayout.payoutSummary.mentorshipDetails.actual.toFixed(2)}
+                            </p>
+                            <p className="text-xs text-gray-600">{selectedPayout.payoutSummary.mentorshipDetails.explanation}</p>
+                          </div>
+                        </div>
+
+                        {/* Calculation Method */}
+                        <div>
+                          <h4 className="text-sm font-semibold text-blue-900 mb-2">Calculation Method</h4>
+                          <div className="bg-white rounded p-3">
+                            <p className="text-sm text-gray-700 mb-1">
+                              <span className="font-medium">Method:</span> {selectedPayout.payoutSummary.calculationMethod.method}
+                            </p>
+                            <p className="text-xs text-gray-600 mb-1">
+                              Promotional Cap: {selectedPayout.payoutSummary.calculationMethod.promotionalCap}
+                            </p>
+                            <p className="text-xs text-gray-600 mb-1">
+                              Mentorship Cap: {selectedPayout.payoutSummary.calculationMethod.mentorshipCap}
+                            </p>
+                            <p className="text-xs text-gray-600 font-medium">
+                              {selectedPayout.payoutSummary.calculationMethod.totalFormula}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Payout Calculation */}
+                        <div>
+                          <h4 className="text-sm font-semibold text-blue-900 mb-2">Final Payout Calculation</h4>
+                          <div className="bg-white rounded p-3">
+                            <p className="text-sm text-gray-700 mb-1">
+                              <span className="font-medium">Gross Income:</span> ₹{selectedPayout.payoutSummary.payoutCalculation.grossIncome.toFixed(2)}
+                            </p>
+                            <p className="text-sm text-gray-700 mb-1">
+                              <span className="font-medium">Platform Fee (5%):</span> ₹{selectedPayout.payoutSummary.payoutCalculation.deduction.toFixed(2)}
+                            </p>
+                            <p className="text-sm text-gray-700 font-medium">
+                              <span className="font-medium">Net Payout:</span> ₹{selectedPayout.payoutSummary.payoutCalculation.netPayout.toFixed(2)}
+                            </p>
+                            <p className="text-xs text-gray-600 mt-2">{selectedPayout.payoutSummary.payoutCalculation.explanation}</p>
+                          </div>
+                        </div>
+
+                        {/* Network Information */}
+                        {selectedPayout.payoutSummary.networkInfo && (
+                          <div>
+                            <h4 className="text-sm font-semibold text-blue-900 mb-2">Network Information</h4>
+                            <div className="bg-white rounded p-3 space-y-3">
+                              {/* Network Overview */}
+                              <div>
+                                <p className="text-sm text-gray-700 mb-1">
+                                  <span className="font-medium">Total Network Size:</span> {selectedPayout.payoutSummary.networkInfo.totalNetworkSize} members
+                                </p>
+                                <p className="text-sm text-gray-700 mb-1">
+                                  <span className="font-medium">Direct Referrals:</span> {selectedPayout.payoutSummary.networkInfo.directReferrals}
+                                </p>
+                                <p className="text-xs text-gray-600">{selectedPayout.payoutSummary.networkInfo.explanation}</p>
+                              </div>
+
+                              {/* Network Levels */}
+                              <div>
+                                <p className="text-sm font-medium text-gray-700 mb-1">Network Levels:</p>
+                                <div className="grid grid-cols-3 gap-2 text-xs">
+                                  <div className="bg-gray-100 p-2 rounded">
+                                    <span className="font-medium">Level 1:</span> {selectedPayout.payoutSummary.networkInfo.level1Downlines}
+                                  </div>
+                                  <div className="bg-gray-100 p-2 rounded">
+                                    <span className="font-medium">Level 2:</span> {selectedPayout.payoutSummary.networkInfo.level2Downlines}
+                                  </div>
+                                  <div className="bg-gray-100 p-2 rounded">
+                                    <span className="font-medium">Level 3:</span> {selectedPayout.payoutSummary.networkInfo.level3Downlines}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Team Structure */}
+                              <div>
+                                <p className="text-sm font-medium text-gray-700 mb-1">Team Structure:</p>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="bg-blue-100 p-2 rounded">
+                                    <span className="font-medium">Left Leg:</span> {selectedPayout.payoutSummary.networkInfo.leftLegStructure.count} members
+                                  </div>
+                                  <div className="bg-green-100 p-2 rounded">
+                                    <span className="font-medium">Right Leg:</span> {selectedPayout.payoutSummary.networkInfo.rightLegStructure.count} members
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Direct Referral Details */}
+                              {selectedPayout.payoutSummary.networkInfo.directReferralDetails.length > 0 && (
+                                <div>
+                                  <p className="text-sm font-medium text-gray-700 mb-2">Direct Referral Details:</p>
+                                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                                    {selectedPayout.payoutSummary.networkInfo.directReferralDetails.map((referral, index) => (
+                                      <div key={index} className="bg-gray-50 p-2 rounded text-xs">
+                                        <p className="font-medium">{referral.name} ({referral.referralCode})</p>
+                                        <p className="text-gray-600">Downlines: {referral.downlinesCount} | Left: {referral.leftDownline || 'None'} | Right: {referral.rightDownline || 'None'}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Status and Dates */}
                   <div>
