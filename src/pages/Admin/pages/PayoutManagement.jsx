@@ -11,7 +11,9 @@ import {
   FaUsers,
   FaCalendarAlt,
   FaFileExport,
-  FaExclamationTriangle
+  FaExclamationTriangle,
+  FaNetworkWired,
+  FaUndo
 } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import PayoutService from '../../../services/payoutService';
@@ -39,6 +41,8 @@ const PayoutManagement = () => {
   const [excludedUsers, setExcludedUsers] = useState([]);
   const [payoutSummary, setPayoutSummary] = useState(null);
   const [showExcludedUsers, setShowExcludedUsers] = useState(false);
+  const [resettingNetwork, setResettingNetwork] = useState(false);
+  const [showResetNetworkDialog, setShowResetNetworkDialog] = useState(false);
 
   // Fetch payouts on component mount
   useEffect(() => {
@@ -171,6 +175,33 @@ const PayoutManagement = () => {
       setError('Failed to generate payouts');
     } finally {
       setGeneratingPayouts(false);
+    }
+  };
+
+  const handleResetNetwork = async () => {
+    try {
+      setResettingNetwork(true);
+      setError(null);
+      setSuccessMessage('');
+      setShowResetNetworkDialog(false);
+      
+      // Call the reset network service
+      const result = await PayoutService.resetNetworkStructure();
+      
+      setSuccessMessage(`✅ Successfully reset network structure! ${result.resetCount} users' network data has been cleared.`);
+      
+      // Refresh data
+      await fetchPayouts();
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => {
+        setSuccessMessage('');
+      }, 5000);
+    } catch (err) {
+      console.error('Error resetting network:', err);
+      setError('Failed to reset network structure');
+    } finally {
+      setResettingNetwork(false);
     }
   };
 
@@ -455,6 +486,25 @@ const PayoutManagement = () => {
               <>
                 <FaCalendarAlt className="text-xl" />
                 Generate Payouts Now
+              </>
+            )}
+          </button>
+          
+          <button
+            onClick={() => setShowResetNetworkDialog(true)}
+            disabled={resettingNetwork}
+            className="px-6 py-4 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg hover:from-orange-700 hover:to-red-700 disabled:opacity-50 flex items-center gap-3 font-semibold shadow-lg transform hover:scale-105 transition-all duration-200"
+            title="Reset network structure for all users"
+          >
+            {resettingNetwork ? (
+              <>
+                <FaSpinner className="animate-spin text-xl" />
+                Resetting Network...
+              </>
+            ) : (
+              <>
+                <FaNetworkWired className="text-xl" />
+                Reset Network
               </>
             )}
           </button>
@@ -1068,6 +1118,71 @@ const PayoutManagement = () => {
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
                     Generate Payouts
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Reset Network Confirmation Dialog */}
+      <AnimatePresence>
+        {showResetNetworkDialog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-lg shadow-xl max-w-md w-full"
+            >
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 bg-orange-100 rounded-lg">
+                    <FaNetworkWired className="text-orange-600 text-xl" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">Confirm Network Reset</h3>
+                </div>
+                
+                <p className="text-gray-600 mb-4">
+                  Are you sure you want to reset the network structure for all users? This action will:
+                </p>
+                
+                <ul className="text-sm text-gray-600 mb-6 space-y-2">
+                  <li>• <strong>Clear all left/right downline assignments</strong></li>
+                  <li>• Reset team structure for all affiliate users</li>
+                  <li>• Remove all network connections</li>
+                  <li>• Allow users to rebuild their networks from scratch</li>
+                  <li>• Reset all income calculations to zero</li>
+                </ul>
+                
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <FaExclamationTriangle className="text-red-600" />
+                    <span className="text-sm font-medium text-red-800">⚠️ Critical Action Warning</span>
+                  </div>
+                  <p className="text-xs text-red-700 mt-1">
+                    <strong>This action will permanently reset all network structures</strong> and cannot be undone. All users will need to rebuild their networks and income calculations will start from zero.
+                  </p>
+                </div>
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowResetNetworkDialog(false)}
+                    className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleResetNetwork}
+                    className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Reset Network
                   </button>
                 </div>
               </div>

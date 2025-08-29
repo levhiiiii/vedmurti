@@ -1199,6 +1199,71 @@ class PayoutService {
       };
     }
   }
+
+  // Reset network structure for all users
+  async resetNetworkStructure() {
+    const db = getFirestore(app);
+    
+    try {
+      // Get all affiliate users
+      const usersQuery = query(
+        collection(db, 'users'),
+        where('affiliateStatus', '==', true)
+      );
+      const usersSnapshot = await getDocs(usersQuery);
+      
+      let resetCount = 0;
+      
+      // Reset network structure for each user
+      for (const userDoc of usersSnapshot.docs) {
+        const userId = userDoc.id;
+        
+        try {
+          // Clear network-related fields
+          await updateDoc(doc(db, 'users', userId), {
+            leftDownLine: null,
+            rightDownLine: null,
+            leftTeamCount: 0,
+            rightTeamCount: 0,
+            directDownlineCount: 0,
+            totalDownlineCount: 0,
+            promotionalIncome: 0,
+            mentorshipIncome: 0,
+            totalIncome: 0,
+            networkResetAt: new Date(),
+            networkResetBy: 'admin'
+          });
+          
+          resetCount++;
+        } catch (error) {
+          console.error(`Error resetting network for user ${userId}:`, error);
+        }
+      }
+      
+      // Also clear any existing payouts for the current cycle
+      const currentCycle = this.getCurrentPayoutCycle();
+      const payoutsQuery = query(
+        collection(db, 'payouts'),
+        where('payoutCycle', '==', currentCycle)
+      );
+      const payoutsSnapshot = await getDocs(payoutsQuery);
+      
+      // Delete existing payouts
+      const deletePromises = payoutsSnapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      console.log(`Network reset completed. ${resetCount} users reset, ${payoutsSnapshot.size} payouts deleted.`);
+      
+      return {
+        resetCount,
+        payoutsDeleted: payoutsSnapshot.size,
+        message: `Successfully reset network structure for ${resetCount} users and deleted ${payoutsSnapshot.size} payouts.`
+      };
+    } catch (error) {
+      console.error('Error resetting network structure:', error);
+      throw new Error('Failed to reset network structure');
+    }
+  }
 }
 
 export default new PayoutService();
