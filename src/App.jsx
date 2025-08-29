@@ -49,15 +49,11 @@ import AddAdmin from "./pages/Admin/pages/AddAdmin.jsx"
 import { FirebaseIndexChecker } from './utils/firebaseIndexChecker';
 
 const App = () => {
-
- const { currentUser } = useUser(); // Get current user from context
-
   const { setShow } = useLoader();
 
   useEffect(() => {
     // Simulate loading
     setShow(false);
-    console.log(currentUser)
     
     // Check Firebase index status in development
     if (process.env.NODE_ENV === 'development') {
@@ -68,21 +64,28 @@ const App = () => {
   
   }, []);
 
+  return (
+    <UserProvider>
+      <CartProvider>
+        <WishlistProvider>
+          <AppContent />
+        </WishlistProvider>
+      </CartProvider>
+    </UserProvider>
+  );
+};
+
+const AppContent = () => {
+  const { currentUser } = useUser(); // Get current user from context
   const location = useLocation();
 
   // Add all routes you want to hide Navbar/Sidebar on
   const hideUIRoutes = ['/account', '/account/orders', '/account/addresses', '/logout', '/affilate-dashboard', '/admin'];
   const shouldHideUI = hideUIRoutes.some((path) => location.pathname.startsWith(path));
 
-
-
-
-
   return (
-    <UserProvider>
-      <CartProvider>
-        <WishlistProvider>
-        {!shouldHideUI && <Navbar />}
+    <>
+      {!shouldHideUI && <Navbar />}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/tree" element={<TreePage />} />
@@ -140,10 +143,8 @@ const App = () => {
 
         </Routes>
         {!shouldHideUI && <Footer />}
-        </WishlistProvider>
-      </CartProvider>
-    </UserProvider>
-  )
-}
+      </>
+    );
+  };
 
 export default App

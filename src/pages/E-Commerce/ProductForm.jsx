@@ -20,6 +20,7 @@ const ProductForm = () => {
   const [imageFiles, setImageFiles] = useState([]);
   const [previewImages, setPreviewImages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [errors, setErrors] = useState({});
   const [categories, setCategories] = useState(['Juices', 'Supplements', 'Wellness Kits', 'Skincare']);
   const [newCategory, setNewCategory] = useState('');
@@ -105,22 +106,35 @@ const ProductForm = () => {
     if (!validateForm()) return;
 
     setIsLoading(true);
+    setUploadProgress(0);
     const db = getFirestore(app);
     const storage = getStorage(app);
 
     try {
+      // Generate product ID once and use it consistently
+      const productId = generateProductId();
+      
       // Upload all images to Firebase Storage
       let imageUrls = [];
-      for (const file of imageFiles) {
-        const storageRef = ref(storage, `products/${generateProductId()}/${file.name}`);
-        await uploadBytes(storageRef, file);
-        const url = await getDownloadURL(storageRef);
-        imageUrls.push(url);
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i];
+        try {
+          const storageRef = ref(storage, `products/${productId}/${file.name}`);
+          console.log('Uploading image:', file.name, 'to path:', `products/${productId}/${file.name}`);
+          await uploadBytes(storageRef, file);
+          const url = await getDownloadURL(storageRef);
+          console.log('Image uploaded successfully:', url);
+          imageUrls.push(url);
+          setUploadProgress(((i + 1) / imageFiles.length) * 100);
+        } catch (uploadError) {
+          console.error('Error uploading image:', file.name, uploadError);
+          throw new Error(`Failed to upload image ${file.name}: ${uploadError.message}`);
+        }
       }
 
       // Create product in Firestore
       const productData = {
-        productId: generateProductId(),
+        productId: productId,
         name: product.name,
         description: product.description,
         price: parseFloat(product.price),
@@ -135,7 +149,9 @@ const ProductForm = () => {
       };
 
       await addDoc(collection(db, 'products'), productData);
-      navigate('/products'); // Redirect to products page
+      console.log('Product created successfully:', productData);
+      console.log('Image URLs:', imageUrls);
+      navigate('/shop'); // Redirect to shop page
     } catch (error) {
       console.error('Error adding product:', error);
       setErrors(prev => ({ ...prev, form: 'Failed to add product. Please try again.' }));
@@ -155,6 +171,21 @@ const ProductForm = () => {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Upload Progress */}
+        {isLoading && uploadProgress > 0 && (
+          <div className="mb-4">
+            <div className="flex justify-between text-sm text-gray-600 mb-1">
+              <span>Uploading images...</span>
+              <span>{Math.round(uploadProgress)}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div 
+                className="bg-green-600 h-2 rounded-full transition-all duration-300" 
+                style={{ width: `${uploadProgress}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
         {/* Product Image */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Product Images</label>

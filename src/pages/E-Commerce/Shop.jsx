@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FiFilter, FiSearch, FiShoppingCart, FiHeart, FiCheck } from 'react-icons/fi';
+import { FiFilter, FiSearch, FiShoppingCart, FiHeart, FiCheck, FiImage } from 'react-icons/fi';
 import { FaStar } from 'react-icons/fa';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
@@ -81,6 +81,13 @@ const ShopPage = () => {
           productsData.push({ id: doc.id, ...doc.data() });
         });
         setProducts(productsData);
+        console.log('Products loaded:', productsData);
+        // Debug image data
+        productsData.forEach(product => {
+          if (product.images) {
+            console.log(`Product ${product.name} images:`, product.images);
+          }
+        });
       } catch (error) {
         console.error('Error fetching products:', error);
       } finally {
@@ -280,20 +287,41 @@ const ShopPage = () => {
                     {/* Product Image */}
                     <div className="relative h-48 bg-green-50 flex items-center justify-center p-4">
                       {(() => {
-                        let imgSrc = '/placeholder-product.jpg';
+                        let imgSrc = null;
                         if (product.images && Array.isArray(product.images) && product.images.length > 0) {
                           imgSrc = product.images[0];
                         } else if (product.image) {
                           imgSrc = product.image;
                         }
-                        return (
+                        
+                        return imgSrc ? (
                           <img
                             src={imgSrc}
                             alt={product.name}
                             className="h-full object-contain"
+                            onError={(e) => {
+                              console.error('Image failed to load:', imgSrc);
+                              e.target.style.display = 'none';
+                              e.target.nextSibling.style.display = 'flex';
+                            }}
                           />
-                        );
+                        ) : null;
                       })()}
+                      
+                      {/* Fallback placeholder when no image or image fails to load */}
+                      <div 
+                        className={`h-full w-full flex items-center justify-center text-gray-400 ${
+                          (product.images && Array.isArray(product.images) && product.images.length > 0) || product.image 
+                            ? 'hidden' 
+                            : 'block'
+                        }`}
+                        style={{ display: 'none' }}
+                      >
+                        <div className="text-center">
+                          <FiImage className="mx-auto text-4xl mb-2" />
+                          <p className="text-sm">No Image</p>
+                        </div>
+                      </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleToggleWishlist(product); }}
                         className={`absolute top-2 right-2 p-2 rounded-full shadow transition-colors ${

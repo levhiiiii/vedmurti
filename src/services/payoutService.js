@@ -295,7 +295,7 @@ class PayoutService {
       
       // Actually delete all existing payouts for this cycle
       const deletePromises = payoutsSnapshot.docs.map(doc => 
-        doc.ref.delete()
+        deleteDoc(doc.ref)
       );
       
       await Promise.all(deletePromises);

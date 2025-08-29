@@ -159,7 +159,7 @@ const Navbar = () => {
                 onClick={toggleAccountMenu}
                 className="p-2 rounded-full hover:bg-green-100 text-gray-700 hover:text-green-700 transition-colors flex items-center"
               >
-                {currentUser ? <img className='h-7 w-7 rounded-full' src={currentUser.profilePic} /> : <FiUser className="text-xl" />}
+                {currentUser && currentUser.profilePic ? <img className='h-7 w-7 rounded-full' src={currentUser.profilePic} alt={currentUser.name || 'Profile'} /> : <FiUser className="text-xl" />}
                 {accountMenuOpen ? (
                   <FiChevronUp className="ml-1" />
                 ) : (
